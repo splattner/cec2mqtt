@@ -23,7 +23,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
       - name: Install libcec
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libcec-dev
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libcec-dev libp8-platform-dev libudev-dev
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
