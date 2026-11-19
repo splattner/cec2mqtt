@@ -1,10 +1,11 @@
 package main
 
 import (
-	"github.com/RobertMe/gocec"
-	log "github.com/sirupsen/logrus"
+	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/RobertMe/gocec"
 )
 
 func init() {
@@ -58,28 +59,22 @@ func InitPowerBridge(container *Container) {
 			time.Minute,
 		)
 
-		log.WithFields(log.Fields{
-			"device.id": device.Id,
-		}).Debug("Subscribing to power change requests")
+		slog.Debug("Subscribing to power change requests", "device.id", device.Id)
 
 		mqtt.Subscribe(mqtt.BuildTopic(device, "power/set"), 0, func(payload []byte) {
 			switch string(payload) {
 			case "on":
-				log.WithFields(log.Fields{
-					"device.id": device.Id,
-				}).Info("Powering device on as requested on MQTT")
+				slog.Info("Powering device on as requested on MQTT", "device.id", device.Id)
 				cec.connection.PowerOnDevice(device.LogicalAddress)
 			case "off":
-				log.WithFields(log.Fields{
-					"device.id": device.Id,
-				}).Info("Turning device into standby as requested on MQTT")
+				slog.Info("Turning device into standby as requested on MQTT", "device.id", device.Id)
 				cec.connection.StandByDevice(device.LogicalAddress)
 			}
 		})
 	})
 
 	if haBridge, ok := container.Get("home-assistant").(*HomeAssistantBridge); ok {
-		log.Info("Enabling Home Assistant configuration for power")
+		slog.Info("Enabling Home Assistant configuration for power")
 		bridge.haBridge = haBridge
 		devices.RegisterDeviceAddedHandler(func(device *Device) {
 			haBridge.RegisterSwitch(device, "power")
@@ -99,10 +94,10 @@ func InitPowerBridge(container *Container) {
 		}
 		status := gocec.PowerStatus(parameters[0])
 
-		log.WithFields(log.Fields{
-			"device.id": device.Id,
-			"status":    status,
-		}).Debug("New power status received")
+		slog.Debug("New power status received",
+			"device.id", device.Id,
+			"status", status,
+		)
 
 		bridge.setPowerStatus(device, status)
 	}, gocec.OpcodeReportPowerStatus)
@@ -113,20 +108,18 @@ func InitPowerBridge(container *Container) {
 			return
 		}
 
-		log.WithFields(log.Fields{
-			"device.id": device.Id,
-		}).Debug("Restarting power monitor because of system audio mode change")
+		slog.Debug("Restarting power monitor because of system audio mode change", "device.id", device.Id)
 
 		bridge.MonitorPower(device.Id)
 	}, gocec.OpcodeSetSystemAudioMode)
 
 	cec.RegisterMessageHandler(func(message gocec.Message) {
-		log.WithFields(log.Fields{
-			"message.source":      message.Source(),
-			"message.destination": message.Destination(),
-			"message.opcode":      message.Opcode(),
-			"message.raw":         []byte(message),
-		}).Debug("Restarting power monitor on all devices")
+		slog.Debug("Restarting power monitor on all devices",
+			"message.source", message.Source(),
+			"message.destination", message.Destination(),
+			"message.opcode", message.Opcode(),
+			"message.raw", []byte(message),
+		)
 
 		bridge.monitorsMutex.Lock()
 		defer bridge.monitorsMutex.Unlock()
@@ -168,12 +161,12 @@ func (bridge *PowerBridge) setPowerStatus(device *Device, status gocec.PowerStat
 		return
 	}
 
-	log.WithFields(log.Fields{
-		"device.logical_address": device.LogicalAddress,
-		"device.id":              device.Id,
-		"state.cec":              status,
-		"state.converted":        value,
-	}).Info("Updating power state")
+	slog.Info("Updating power state",
+		"device.logical_address", device.LogicalAddress,
+		"device.id", device.Id,
+		"state.cec", status,
+		"state.converted", value,
+	)
 
 	state.state = value
 
@@ -194,19 +187,19 @@ func (bridge *PowerBridge) createStarter(device *Device) Starter {
 
 	message := gocec.NewMessage(source, device.LogicalAddress, gocec.OpcodeGiveDevicePowerStatus, []byte{})
 
-	context := log.WithFields(log.Fields{
-		"device.logical_address": device.LogicalAddress,
-		"device.id":              device.Id,
-		"source":                 source,
-		"message":                []byte(message),
-	})
+	context := slog.With(
+		"device.logical_address", device.LogicalAddress,
+		"device.id", device.Id,
+		"source", source,
+		"message", []byte(message),
+	)
 
 	var lastSend time.Time
 
 	return func() {
 		now := time.Now()
 		if now.Sub(lastSend) > 10*time.Second {
-			context.Trace("Requesting power state from monitor")
+			trace(context, "Requesting power state from monitor")
 			bridge.cec.Transmit(message)
 			lastSend = now
 		}
@@ -217,18 +210,18 @@ func (bridge *PowerBridge) createRunner(device *Device) Runner {
 	return func() {
 		status := bridge.cec.connection.GetPowerStatus(device.LogicalAddress)
 
-		log.WithFields(log.Fields{
-			"device.logical_address": device.LogicalAddress,
-			"device.id":              device.Id,
-			"status":                 status,
-		}).Trace("Updating power from monitor")
+		logTrace("Updating power from monitor",
+			"device.logical_address", device.LogicalAddress,
+			"device.id", device.Id,
+			"status", status,
+		)
 
 		bridge.setPowerStatus(device, status)
 	}
 }
 
 func (bridge *PowerBridge) resendAll() {
-	log.Debug("Resending all power states")
+	slog.Debug("Resending all power states")
 	bridge.statesMutex.Lock()
 	defer bridge.statesMutex.Unlock()
 	for _, device := range bridge.devices.List() {

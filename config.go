@@ -1,10 +1,11 @@
 package main
 
 import (
-	log "github.com/sirupsen/logrus"
-	"gopkg.in/yaml.v3"
+	"log/slog"
 	"os"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 type MqttConfig struct {
@@ -38,15 +39,11 @@ type Config struct {
 }
 
 func ParseConfig(configPath string) (*Config, error) {
-	logContext := log.WithFields(log.Fields{
-		"config_file": configPath + "config.yaml",
-	})
+	logContext := slog.With("config_file", configPath+"config.yaml")
 	logContext.Info("Reading configuration")
 	data, err := os.ReadFile(configPath + "config.yaml")
 	if nil != err {
-		logContext.WithFields(log.Fields{
-			"error": err,
-		}).Error("Configuration could not be read")
+		logContext.Error("Configuration could not be read", "error", err)
 		return nil, err
 	}
 
@@ -54,27 +51,25 @@ func ParseConfig(configPath string) (*Config, error) {
 	err = yaml.Unmarshal(data, &config)
 
 	if err != nil {
-		logContext.WithFields(log.Fields{
-			"error": err,
-		}).Error("Configuration file could not be parsed as valid YAML")
+		logContext.Error("Configuration file could not be parsed as valid YAML", "error", err)
 		return nil, err
 	}
 
 	if config.HomeAssistant.Enable {
 		if config.HomeAssistant.DiscoveryPrefix == "" {
-			log.Debug("Home assistant integration is enabled but discovery prefix is not set. Setting default.")
+			slog.Debug("Home assistant integration is enabled but discovery prefix is not set. Setting default.")
 			config.HomeAssistant.DiscoveryPrefix = "homeassistant"
 		} else {
 			config.HomeAssistant.DiscoveryPrefix = strings.Trim(config.HomeAssistant.DiscoveryPrefix, "/")
 		}
 
 		if config.HomeAssistant.BirthTopic == "" {
-			log.Debug("Home Assistant integration is enabled but birth topic is not set. Setting default.")
+			slog.Debug("Home Assistant integration is enabled but birth topic is not set. Setting default.")
 			config.HomeAssistant.BirthTopic = config.HomeAssistant.DiscoveryPrefix + "/status"
 		}
 
 		if config.HomeAssistant.BirthPayload == "" {
-			log.Debug("Home Assistant integration is enabled but birth payload is not set. Setting default.")
+			slog.Debug("Home Assistant integration is enabled but birth payload is not set. Setting default.")
 			config.HomeAssistant.BirthPayload = "online"
 		}
 	}

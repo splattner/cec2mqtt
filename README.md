@@ -88,6 +88,16 @@ system has more than one (for example ``/dev/cec1`` or ``/dev/ttyACM0``); by def
 ``birth_topic`` and ``birth_payload`` are used to detect Home Assistant restarts, after which all entities and states are republished.
 They default to ``<discovery_prefix>/status`` and ``online``, matching Home Assistant's defaults.
 
+### Command line options
+| Option | Default | Description |
+| --- | --- | --- |
+| ``-data-dir`` | ``/data/cec2mqtt/`` | Directory containing ``config.yaml`` and ``devices.yaml`` |
+| ``-log-level`` | ``info`` | One of ``error``, ``warning``, ``info``, ``debug``, ``trace`` |
+| ``-log-format`` | ``text`` | ``text`` or ``json`` |
+| ``-log-cec-messages`` | ``false`` | Also log the internal libcec log (at debug level) |
+
+When using Docker the options can be appended to the ``docker run`` command, or be set using ``command:`` in ``docker-compose.yaml``.
+
 ### Device configuration
 Devices which have been found in the CEC network can be configured as well. For this you **must** first stop cec2mqtt. When Cec2Mqtt is stopped you
 can open the devices.yaml file in the data directory. Here you can change the ``mqtt_topic`` which is used in MQTT.

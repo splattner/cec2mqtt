@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	log "github.com/sirupsen/logrus"
+	"log/slog"
 	"strings"
 )
 
@@ -23,7 +23,7 @@ type HomeAssistantBridge struct {
 func InitHomeAssistantBridge(container *Container) {
 	config := container.Get("config").(*Config)
 	if !config.HomeAssistant.Enable {
-		log.Info("Home assistant integration is not enabled, skipping")
+		slog.Info("Home assistant integration is not enabled, skipping")
 		return
 	}
 
@@ -36,12 +36,10 @@ func InitHomeAssistantBridge(container *Container) {
 	}
 
 	mqtt.Subscribe(config.HomeAssistant.BirthTopic, 0, func(payload []byte) {
-		log.WithFields(log.Fields{
-			"payload": string(payload),
-		}).Debug("Received message on Home Assistant birth topic")
+		slog.Debug("Received message on Home Assistant birth topic", "payload", string(payload))
 
 		if string(payload) == config.HomeAssistant.BirthPayload {
-			log.Info("Received Home Assistant birth message")
+			slog.Info("Received Home Assistant birth message")
 			for _, handler := range bridge.birthHandlers {
 				handler()
 			}
@@ -66,21 +64,21 @@ func (bridge *HomeAssistantBridge) RegisterSwitch(device *Device, property strin
 
 	encoded, err := json.Marshal(config)
 	if err != nil {
-		log.WithFields(log.Fields{
-			"device.id": device.Config.Id,
-			"property":  property,
-			"config":    config,
-			"error":     err,
-		}).Error("Failed to convert switch configuration to JSON")
+		slog.Error("Failed to convert switch configuration to JSON",
+			"device.id", device.Config.Id,
+			"property", property,
+			"config", config,
+			"error", err,
+		)
 
 		return
 	}
 
-	log.WithFields(log.Fields{
-		"device.id": device.Config.Id,
-		"property":  property,
-		"config":    string(encoded),
-	}).Info("Registering switch in Home Assistant")
+	slog.Info("Registering switch in Home Assistant",
+		"device.id", device.Config.Id,
+		"property", property,
+		"config", string(encoded),
+	)
 
 	bridge.mqtt.Publish(topic.String(), 0, true, encoded)
 }
@@ -95,21 +93,21 @@ func (bridge *HomeAssistantBridge) RegisterBinarySensor(device *Device, property
 
 	encoded, err := json.Marshal(config)
 	if err != nil {
-		log.WithFields(log.Fields{
-			"device.id": device.Config.Id,
-			"property":  property,
-			"config":    config,
-			"error":     err,
-		}).Error("Failed to convert binary sensor configuration to JSON")
+		slog.Error("Failed to convert binary sensor configuration to JSON",
+			"device.id", device.Config.Id,
+			"property", property,
+			"config", config,
+			"error", err,
+		)
 
 		return
 	}
 
-	log.WithFields(log.Fields{
-		"device.id": device.Config.Id,
-		"property":  property,
-		"config":    string(encoded),
-	}).Info("Registering binary sensor in Home Assistant")
+	slog.Info("Registering binary sensor in Home Assistant",
+		"device.id", device.Config.Id,
+		"property", property,
+		"config", string(encoded),
+	)
 
 	bridge.mqtt.Publish(topic.String(), 0, true, encoded)
 }

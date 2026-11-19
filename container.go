@@ -1,7 +1,7 @@
 package main
 
 import (
-	log "github.com/sirupsen/logrus"
+	"log/slog"
 	"sync"
 )
 
@@ -17,9 +17,7 @@ func NewContainer() *Container {
 }
 
 func (container *Container) Register(name string, service interface{}) {
-	log.WithFields(log.Fields{
-		"name": name,
-	}).Trace("Registering new service into container")
+	logTrace("Registering new service into container", "name", name)
 
 	container.mux.Lock()
 	defer container.mux.Unlock()
@@ -27,25 +25,19 @@ func (container *Container) Register(name string, service interface{}) {
 }
 
 func (container *Container) Unregister(name string) {
-	log.WithFields(log.Fields{
-		"name": name,
-	}).Trace("Unregistering new service from container")
+	logTrace("Unregistering new service from container", "name", name)
 	container.mux.Lock()
 	defer container.mux.Unlock()
 	delete(container.services, name)
 }
 
 func (container *Container) Get(name string) interface{} {
-	log.WithFields(log.Fields{
-		"name": name,
-	}).Trace("Getting service from container")
+	logTrace("Getting service from container", "name", name)
 	container.mux.RLock()
 	defer container.mux.RUnlock()
 	service, ok := container.services[name]
 	if !ok {
-		log.WithFields(log.Fields{
-			"name": name,
-		}).Debug("Service not available in container")
+		slog.Debug("Service not available in container", "name", name)
 
 		return nil
 	}
