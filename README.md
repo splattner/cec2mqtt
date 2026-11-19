@@ -72,12 +72,18 @@ mqtt:
     birth_message: online
     will_message: offline
     base_topic: cec2mqtt
+    client_id: cec2mqtt
+cec:
+    adapter: /dev/cec0
 home_assistant:
     enable: true
     discovery_prefix: homeassistant
     birth_topic: homeassistant/status
     birth_payload: online
 ```
+
+``client_id`` sets the MQTT client ID; a random one is used when it's not set. ``cec.adapter`` selects the CEC adapter to use when the
+system has more than one (for example ``/dev/cec1`` or ``/dev/ttyACM0``); by default the first adapter found is used.
 
 ``birth_topic`` and ``birth_payload`` are used to detect Home Assistant restarts, after which all entities and states are republished.
 They default to ``<discovery_prefix>/status`` and ``online``, matching Home Assistant's defaults.

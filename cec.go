@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"github.com/RobertMe/gocec"
 	log "github.com/sirupsen/logrus"
 	"strings"
@@ -71,7 +72,11 @@ func InitialiseCec(devices *DeviceRegistry, path string) (*Cec, error) {
 		}
 
 		if !found {
-			return nil, errors.New("Adapter " + path + " has not been found")
+			paths := make([]string, len(adapters))
+			for i, candidate := range adapters {
+				paths[i] = candidate.Path
+			}
+			return nil, fmt.Errorf("adapter %s has not been found, available adapters: %s", path, strings.Join(paths, ", "))
 		}
 
 		log.WithFields(log.Fields{

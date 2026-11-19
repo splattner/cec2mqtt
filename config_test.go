@@ -48,6 +48,9 @@ mqtt:
   username: user
   password: secret
   base_topic: cec2mqtt
+  client_id: livingroom
+cec:
+  adapter: /dev/cec1
 home_assistant:
   enable: true
   discovery_prefix: /custom/
@@ -62,6 +65,13 @@ home_assistant:
 
 	if config.Mqtt.Username != "user" || config.Mqtt.Password != "secret" {
 		t.Errorf("credentials not parsed: %+v", config.Mqtt)
+	}
+
+	if config.Mqtt.ClientId != "livingroom" {
+		t.Errorf("ClientId = %q, want %q", config.Mqtt.ClientId, "livingroom")
+	}
+	if config.Cec.Adapter != "/dev/cec1" {
+		t.Errorf("Cec.Adapter = %q, want %q", config.Cec.Adapter, "/dev/cec1")
 	}
 
 	ha := config.HomeAssistant

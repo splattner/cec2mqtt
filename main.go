@@ -104,7 +104,7 @@ func main() {
 
 	container.Register("mqtt", mqtt)
 
-	cec, err := InitialiseCec(devices, "")
+	cec, err := InitialiseCec(devices, config.Cec.Adapter)
 	if nil != err {
 		log.WithFields(log.Fields{
 			"error": err,

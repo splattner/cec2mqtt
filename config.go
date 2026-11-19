@@ -15,6 +15,13 @@ type MqttConfig struct {
 	BirthMessage string `yaml:"birth_message"`
 	WillMessage  string `yaml:"will_message"`
 	BaseTopic    string `yaml:"base_topic"`
+	ClientId     string `yaml:"client_id"`
+}
+
+type CecConfig struct {
+	// Adapter is the path of the CEC adapter to use, e.g. /dev/cec0 or
+	// /dev/ttyACM0. When empty the first adapter found is used.
+	Adapter string `yaml:"adapter"`
 }
 
 type HomeAssistantConfig struct {
@@ -26,6 +33,7 @@ type HomeAssistantConfig struct {
 
 type Config struct {
 	Mqtt          MqttConfig
+	Cec           CecConfig           `yaml:"cec"`
 	HomeAssistant HomeAssistantConfig `yaml:"home_assistant"`
 }
 

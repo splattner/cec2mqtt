@@ -39,6 +39,10 @@ func ConnectMqtt(config *Config) (*Mqtt, error) {
 
 	options.AddBroker(mqttConfig.Host)
 
+	if mqttConfig.ClientId != "" {
+		options.SetClientID(mqttConfig.ClientId)
+	}
+
 	if mqttConfig.Username != "" {
 		options.SetUsername(mqttConfig.Username)
 	}
