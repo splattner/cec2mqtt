@@ -6,9 +6,8 @@ on:
       - master
     tags:
       - 'v*'
+  # Run for all pull requests, including stacked ones targeting other branches.
   pull_request:
-    branches:
-      - master
 
 env:
   REGISTRY: ghcr.io
