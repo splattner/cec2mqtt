@@ -10,9 +10,9 @@ import (
 	"syscall"
 )
 
-const (
-	BuildVersion = "0.0.1"
-)
+// BuildVersion is overridden at build time using
+// -ldflags "-X main.BuildVersion=<version>".
+var BuildVersion = "dev"
 
 type Initializer func(container *Container)
 
@@ -105,19 +105,23 @@ func main() {
 	container.Register("mqtt", mqtt)
 
 	cec, err := InitialiseCec(devices, "")
-	cec.LibCecLoggingEnabled = logCecMessages
-
 	if nil != err {
 		log.WithFields(log.Fields{
 			"error": err,
 		}).Fatal("Failed to setup CEC connection")
 	}
 
+	cec.LibCecLoggingEnabled = logCecMessages
+
 	container.Register("cec", cec)
 
 	runInitializers(container)
 
-	cec.Start()
+	if err := cec.Start(); err != nil {
+		log.WithFields(log.Fields{
+			"error": err,
+		}).Fatal("Failed to open CEC connection")
+	}
 
 	signals := make(chan os.Signal, 1)
 	done := make(chan bool, 1)

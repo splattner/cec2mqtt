@@ -3,7 +3,7 @@ package main
 import (
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
-	"io/ioutil"
+	"os"
 	"strings"
 )
 
@@ -34,7 +34,7 @@ func ParseConfig(configPath string) (*Config, error) {
 		"config_file": configPath + "config.yaml",
 	})
 	logContext.Info("Reading configuration")
-	data, err := ioutil.ReadFile(configPath + "config.yaml")
+	data, err := os.ReadFile(configPath + "config.yaml")
 	if nil != err {
 		logContext.WithFields(log.Fields{
 			"error": err,
@@ -57,17 +57,17 @@ func ParseConfig(configPath string) (*Config, error) {
 			log.Debug("Home assistant integration is enabled but discovery prefix is not set. Setting default.")
 			config.HomeAssistant.DiscoveryPrefix = "homeassistant"
 		} else {
-			strings.Trim(config.HomeAssistant.DiscoveryPrefix, "/")
+			config.HomeAssistant.DiscoveryPrefix = strings.Trim(config.HomeAssistant.DiscoveryPrefix, "/")
 		}
 
 		if config.HomeAssistant.BirthTopic == "" {
 			log.Debug("Home Assistant integration is enabled but birth topic is not set. Setting default.")
-			config.HomeAssistant.BirthTopic = "hass/status"
+			config.HomeAssistant.BirthTopic = config.HomeAssistant.DiscoveryPrefix + "/status"
 		}
 
 		if config.HomeAssistant.BirthPayload == "" {
 			log.Debug("Home Assistant integration is enabled but birth payload is not set. Setting default.")
-			config.HomeAssistant.BirthTopic = "online"
+			config.HomeAssistant.BirthPayload = "online"
 		}
 	}
 
@@ -85,7 +85,7 @@ func (config *Config) Save(configPath string) error {
 		return err
 	}
 
-	err = ioutil.WriteFile(configPath+"config.yaml", data, 0644)
+	err = os.WriteFile(configPath+"config.yaml", data, 0644)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"error":       err,

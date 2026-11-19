@@ -1,48 +1,34 @@
-FROM golang:alpine AS dev
+# syntax=docker/dockerfile:1
 
-WORKDIR /root
+ARG GO_VERSION=1.26
+ARG ALPINE_VERSION=3.24
 
-RUN apk add cmake make g++ eudev-dev p8-platform-dev linux-headers
+FROM docker.io/library/golang:${GO_VERSION}-alpine${ALPINE_VERSION} AS builder
 
-ENV LIBCEC_VERSION=6.0.2
+# libcec from Alpine is built with support for both the Pulse-Eight adapter and
+# the Linux kernel CEC API (/dev/cecX), so it no longer needs to be compiled here.
+RUN apk add --no-cache build-base pkgconf libcec-dev
 
-ADD https://github.com/Pulse-Eight/libcec/archive/libcec-${LIBCEC_VERSION}.tar.gz .
+WORKDIR /src
 
-RUN rm -rf libcec \
-  && tar xf libcec-${LIBCEC_VERSION}.tar.gz \
-  && mv libcec-libcec-${LIBCEC_VERSION} libcec \
-  \
-  && mkdir libcec/build \
-  && cd libcec/build \
-  \
-  && cmake -DCMAKE_BUILD_TYPE=Release \
-       -DBUILD_SHARED_LIBS=1 \
-       -DCMAKE_INSTALL_PREFIX=/usr \
-       -DHAVE_LINUX_API=1 \
-       .. \
-  \
-  && make -j4 \
-  \
-  && make install
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
-WORKDIR /go/src/cec2mqtt
+COPY *.go ./
 
-FROM dev AS builder
+ARG VERSION=dev
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go vet ./... \
+ && go build -trimpath -ldflags "-s -w -X main.BuildVersion=${VERSION}" -o /out/cec2mqtt .
 
-COPY . ./
+FROM docker.io/library/alpine:${ALPINE_VERSION}
 
-RUN apk add git
+RUN apk add --no-cache libcec
 
-RUN go get -d -v .
-RUN go build -v -o cec2mqtt
-
-FROM alpine
-
-RUN apk add p8-platform eudev
-
-COPY --from=builder /usr/lib/libcec.so* /usr/lib/
-COPY --from=builder /go/src/cec2mqtt/cec2mqtt /usr/bin
+COPY --from=builder /out/cec2mqtt /usr/bin/cec2mqtt
 
 VOLUME /data/cec2mqtt
 
-CMD ["/usr/bin/cec2mqtt"]
+ENTRYPOINT ["/usr/bin/cec2mqtt"]
