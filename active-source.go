@@ -189,6 +189,17 @@ func (bridge *ActiveSourceBridge) updateActiveSourceLocked(newSource *Device) {
 }
 
 func (bridge *ActiveSourceBridge) checkActiveSource() {
+	// Nothing can be the active source while the TV is in standby. Asking
+	// anyway makes libcec broadcast Request Active Source, which nobody answers.
+	bridge.mux.Lock()
+	tvOn, known := bridge.allowedSources[gocec.DeviceTV]
+	bridge.mux.Unlock()
+	if known && !tvOn {
+		logTrace("Not checking active source because the TV is in standby")
+		bridge.updateActiveSource(nil)
+		return
+	}
+
 	address := bridge.cec.connection.GetActiveSource()
 
 	var newSource *Device = nil

@@ -51,12 +51,16 @@ func InitPowerBridge(container *Container) {
 		defer bridge.statesMutex.Unlock()
 		defer bridge.monitorsMutex.Unlock()
 		bridge.states[device.Id] = &PowerState{state: "unknown", published: false}
+		request := bridge.createStatusRequester(device)
 		bridge.monitors[device.Id] = CreateMonitor(
-			bridge.createStarter(device),
-			bridge.createRunner(device),
+			request,
+			bridge.createRunner(device, request),
 			5*time.Minute,
-			5*time.Second,
-			time.Minute,
+			// After a command or a power related CEC message, poll every 2
+			// seconds for 30 seconds. Some TVs keep reporting "on" for a few
+			// seconds after accepting <Standby>.
+			2*time.Second,
+			30*time.Second,
 		)
 
 		slog.Debug("Subscribing to power change requests", "device.id", device.Id)
@@ -118,6 +122,24 @@ func InitPowerBridge(container *Container) {
 
 		bridge.MonitorPower(device.Id)
 	}, gocec.OpcodeSetSystemAudioMode)
+
+	// Devices which wake up announce themselves (like a TV turned on with its
+	// own remote broadcasting its physical address and menu language), and
+	// vendor commands are often sent on power changes as well. Check the power
+	// status of the sender soon, instead of on the next regular poll.
+	cec.RegisterMessageHandler(func(message gocec.Message) {
+		device := getDevice(message.Source())
+		if device == nil {
+			return
+		}
+
+		slog.Debug("Restarting power monitor because the device announced itself",
+			"device.id", device.Id,
+			"opcode", message.Opcode(),
+		)
+
+		bridge.MonitorPower(device.Id)
+	}, gocec.OpcodeReportPhysicalAddress, gocec.OpcodeSetMenuLanguage, gocec.OpcodeVendorCommand, gocec.OpcodeVendorCommandWithId)
 
 	cec.RegisterMessageHandler(func(message gocec.Message) {
 		slog.Debug("Restarting power monitor on all devices",
@@ -198,17 +220,18 @@ func powerStatusRequest(adapter gocec.LogicalAddress, device *Device) gocec.Mess
 	return gocec.NewMessage(adapter, device.LogicalAddress, gocec.OpcodeGiveDevicePowerStatus, []byte{})
 }
 
-// createStarter creates the starter of the power monitor, which asks the device
-// for its power status directly. Unlike the runner, which reads libcec's power
-// status (cached for up to 30 seconds), this gets the current status right away.
-func (bridge *PowerBridge) createStarter(device *Device) Starter {
+// createStatusRequester creates a function which asks the device for its power
+// status directly. The reply is handled like any other Report Power Status.
+// This is needed because libcec's power status (used by the runner) is cached
+// for up to 30 seconds.
+func (bridge *PowerBridge) createStatusRequester(device *Device) func() {
 	var lastSend time.Time
 
 	return func() {
-		// Several resets shortly after each other (like a command followed by
-		// CEC messages caused by it) only need one request.
+		// The monitor calls this both on (re)start and on every tick, so
+		// requests shortly after each other are merged.
 		now := time.Now()
-		if now.Sub(lastSend) < 2*time.Second {
+		if now.Sub(lastSend) < time.Second {
 			return
 		}
 		lastSend = now
@@ -223,8 +246,12 @@ func (bridge *PowerBridge) createStarter(device *Device) Starter {
 	}
 }
 
-func (bridge *PowerBridge) createRunner(device *Device) Runner {
+func (bridge *PowerBridge) createRunner(device *Device, request func()) Runner {
 	return func() {
+		request()
+
+		// libcec's (possibly cached) status, for devices which don't reply to
+		// the request above.
 		status := bridge.cec.connection.GetPowerStatus(device.LogicalAddress)
 
 		logTrace("Updating power from monitor",
