@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/RobertMe/gocec"
 )
@@ -134,7 +135,8 @@ func (cec *Cec) handleLogMessage(logMessage *gocec.LogMessage) {
 	if cec.LibCecLoggingEnabled {
 		slog.Debug("Incoming message from libcec",
 			"message", logMessage.Message,
-			"time", logMessage.Time,
+			// gocec converts libcec's milliseconds since start as if they were seconds since the Unix epoch.
+			"libcec_uptime", time.Duration(logMessage.Time.Unix())*time.Millisecond,
 			"level", logMessage.Level,
 		)
 	}

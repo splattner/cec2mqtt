@@ -69,7 +69,13 @@ func InitPowerBridge(container *Container) {
 			case "off":
 				slog.Info("Turning device into standby as requested on MQTT", "device.id", device.Id)
 				cec.connection.StandByDevice(device.LogicalAddress)
+			default:
+				slog.Warn("Unsupported power request, use \"on\" or \"off\"", "device.id", device.Id, "payload", string(payload))
+				return
 			}
+
+			// Poll the power status more often, so the new state is published soon.
+			bridge.MonitorPower(device.Id)
 		})
 	})
 
