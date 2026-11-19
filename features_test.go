@@ -2,8 +2,8 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -77,10 +77,10 @@ func TestRemoteBridge(t *testing.T) {
 	player := addTestDevice(t, registry, gocec.DevicePlaybackDevice1, gocec.PhysicalAddress{0x10, 0}, "Player")
 
 	// Event entity of the TV is registered right away, others only on the first key press.
-	if len(mqtt.messages("homeassistant/event/"+tv.Id+"/remote_key/config")) != 1 {
+	if _, components := mqtt.discovery(t, tv.Id); components["remote_key"]["platform"] != "event" {
 		t.Error("expected event entity for the TV")
 	}
-	if len(mqtt.messages("homeassistant/event/"+player.Id+"/remote_key/config")) != 0 {
+	if _, components := mqtt.discovery(t, player.Id); components != nil {
 		t.Error("expected no event entity for the player yet")
 	}
 
@@ -101,12 +101,14 @@ func TestRemoteBridge(t *testing.T) {
 		if len(got) != 1 || got[0] != `{"event_type":"select"}` {
 			t.Errorf("published %q", got)
 		}
-		if len(mqtt.messages("homeassistant/event/"+player.Id+"/remote_key/config")) != 1 {
+		if _, components := mqtt.discovery(t, player.Id); components["remote_key"]["platform"] != "event" {
 			t.Error("expected event entity to be registered on first key press")
 		}
 
+		discoveryTopic := "homeassistant/device/" + player.Id + "/config"
+		before := len(mqtt.messages(discoveryTopic))
 		bridge.handleUserControlPressed(gocec.Message{0x41, byte(gocec.OpcodeUserControlPressed), 0x01})
-		if len(mqtt.messages("homeassistant/event/"+player.Id+"/remote_key/config")) != 1 {
+		if len(mqtt.messages(discoveryTopic)) != before {
 			t.Error("event entity must only be registered once")
 		}
 
@@ -161,21 +163,21 @@ func TestAudioBridgeOnlyHandlesAudioSystem(t *testing.T) {
 	_, _, mqtt, receiver := newTestAudioBridge(t)
 
 	mqtt.mux.Lock()
-	defer mqtt.mux.Unlock()
 	for topic := range mqtt.subscriptions {
+		if strings.HasPrefix(topic, "homeassistant/") {
+			continue // legacy discovery topics watched for migration
+		}
 		if topic != "cec2mqtt/Receiver/volume/set" && topic != "cec2mqtt/Receiver/mute/set" {
 			t.Errorf("unexpected subscription %q", topic)
 		}
 	}
+	mqtt.mux.Unlock()
 
-	for _, entity := range []string{"sensor/%s/volume", "switch/%s/mute", "button/%s/volume_up", "button/%s/volume_down"} {
-		topic := "homeassistant/" + fmt.Sprintf(entity, receiver.Id) + "/config"
-		found := false
-		for _, p := range mqtt.published {
-			found = found || p.topic == topic
-		}
-		if !found {
-			t.Errorf("expected Home Assistant entity %s", topic)
+	_, components := mqtt.discovery(t, receiver.Id)
+	want := map[string]string{"volume": "sensor", "mute": "switch", "volume_up": "button", "volume_down": "button"}
+	for id, platform := range want {
+		if components[id]["platform"] != platform {
+			t.Errorf("expected %s component %q, got %v", platform, id, components[id])
 		}
 	}
 }
@@ -274,40 +276,162 @@ func TestHomeAssistantDiscovery(t *testing.T) {
 		CecDevice: &CecDeviceDescription{OSD: "TV", vendor: gocec.VendorSamsung},
 	}
 
-	ha.RegisterButton(device, "select_source", "is_active_source", "on")
+	ha.RegisterSwitch(device, "power")
+	ha.RegisterButton(device, "volume_up", "volume", "up")
+	ha.RegisterSelect(device, "source", []string{"Player", "TV"})
 	ha.RegisterEvent(device, "remote_key", []string{"select", "up"})
 
-	var button map[string]any
-	decode(t, mqtt.messages("homeassistant/button/abc/select_source/config"), &button)
+	payload, components := mqtt.discovery(t, "abc")
+	if payload == nil {
+		t.Fatal("no device discovery message published")
+	}
+
+	dev, _ := payload["device"].(map[string]any)
+	if ids, _ := dev["identifiers"].([]any); len(ids) != 1 || ids[0] != "cec2mqtt_abc" || dev["name"] != "TV" {
+		t.Errorf("unexpected device %v", dev)
+	}
+	if origin, _ := payload["origin"].(map[string]any); origin["name"] != "cec2mqtt" {
+		t.Errorf("unexpected origin %v", payload["origin"])
+	}
+	if payload["availability_topic"] != "cec2mqtt/state" || payload["payload_available"] != "online" {
+		t.Errorf("expected shared availability, got %v", payload)
+	}
+	if len(components) != 4 {
+		t.Fatalf("expected 4 components, got %v", components)
+	}
+
+	// unique_ids must match earlier versions, so entities are migrated instead of recreated.
+	power := components["power"]
+	if power["platform"] != "switch" || power["unique_id"] != "abc_power_cec2mqtt" || power["name"] != "Power" ||
+		power["state_topic"] != "cec2mqtt/TV/power" || power["command_topic"] != "cec2mqtt/TV/power/set" {
+		t.Errorf("unexpected power component %v", power)
+	}
+
+	button := components["volume_up"]
 	if _, ok := button["state_topic"]; ok {
 		t.Error("button must not have a state topic")
 	}
-	if button["command_topic"] != "cec2mqtt/TV/is_active_source/set" || button["payload_press"] != "on" {
-		t.Errorf("unexpected button config %v", button)
-	}
-	if button["name"] != "Select source" || button["unique_id"] != "abc_select_source_cec2mqtt" {
-		t.Errorf("unexpected button name/unique_id %v", button)
-	}
-	if button["availability_topic"] != "cec2mqtt/state" {
-		t.Errorf("expected availability topic, got %v", button)
+	if button["command_topic"] != "cec2mqtt/TV/volume/set" || button["payload_press"] != "up" {
+		t.Errorf("unexpected button component %v", button)
 	}
 
-	var event map[string]any
-	decode(t, mqtt.messages("homeassistant/event/abc/remote_key/config"), &event)
-	if event["state_topic"] != "cec2mqtt/TV/remote_key" {
-		t.Errorf("unexpected event state topic %v", event["state_topic"])
+	source := components["source"]
+	if source["platform"] != "select" || source["command_topic"] != "cec2mqtt/TV/source/set" {
+		t.Errorf("unexpected select component %v", source)
+	}
+	if options, _ := source["options"].([]any); len(options) != 2 {
+		t.Errorf("unexpected select options %v", source["options"])
+	}
+
+	event := components["remote_key"]
+	if event["platform"] != "event" || event["state_topic"] != "cec2mqtt/TV/remote_key" {
+		t.Errorf("unexpected event component %v", event)
 	}
 	if types, _ := event["event_types"].([]any); len(types) != 2 {
 		t.Errorf("unexpected event types %v", event["event_types"])
 	}
+
+	for _, config := range components {
+		if _, ok := config["device"]; ok {
+			t.Errorf("device must only be set at the root, got %v", config)
+		}
+	}
 }
 
-func decode(t *testing.T, messages []string, v any) {
-	t.Helper()
-	if len(messages) != 1 {
-		t.Fatalf("expected 1 discovery message, got %d", len(messages))
+func TestHomeAssistantMigration(t *testing.T) {
+	mqtt := newFakeMqtt()
+	ha := newTestHomeAssistantBridge(mqtt)
+	device := &Device{
+		Id:        "abc",
+		Config:    &DeviceConfig{Id: "abc", MqttTopic: "TV"},
+		CecDevice: &CecDeviceDescription{OSD: "TV", vendor: gocec.VendorSamsung},
 	}
-	if err := json.Unmarshal([]byte(messages[0]), v); err != nil {
-		t.Fatal(err)
+
+	ha.RegisterSwitch(device, "power")
+
+	legacy := "homeassistant/switch/abc/power/config"
+	removed := "homeassistant/button/abc/select_source/config"
+	discoveryTopic := "homeassistant/device/abc/config"
+
+	// Nothing retained on the legacy topics: nothing is migrated or removed.
+	mqtt.deliver(t, legacy, "")
+	mqtt.deliver(t, removed, "")
+	if len(mqtt.messages(legacy)) != 0 || len(mqtt.messages(removed)) != 0 {
+		t.Fatal("expected no messages on legacy topics without retained configuration")
+	}
+
+	// A retained single component configuration of an earlier version is migrated.
+	mqtt.reset()
+	mqtt.deliver(t, legacy, `{"name":"Power","unique_id":"abc_power_cec2mqtt"}`)
+
+	mqtt.mux.Lock()
+	var sequence []string
+	for _, p := range mqtt.published {
+		if !p.retained {
+			t.Errorf("discovery message on %s must be retained", p.topic)
+		}
+		sequence = append(sequence, p.topic+" "+p.payload)
+	}
+	mqtt.mux.Unlock()
+
+	if len(sequence) != 3 ||
+		sequence[0] != legacy+" "+migrateDiscoveryPayload ||
+		!strings.HasPrefix(sequence[1], discoveryTopic+" ") ||
+		sequence[2] != legacy+" " {
+		t.Errorf("unexpected migration sequence:\n%s", strings.Join(sequence, "\n"))
+	}
+
+	// Our own migration message and the cleanup are delivered back and ignored.
+	mqtt.reset()
+	mqtt.deliver(t, legacy, migrateDiscoveryPayload)
+	mqtt.deliver(t, legacy, "")
+	if len(mqtt.published) != 0 {
+		t.Errorf("unexpected messages %v", mqtt.published)
+	}
+
+	// Removed components are cleared.
+	mqtt.deliver(t, removed, `{"name":"Select source"}`)
+	if got := mqtt.messages(removed); len(got) != 1 || got[0] != "" {
+		t.Errorf("expected removed component to be cleared, got %q", got)
+	}
+}
+
+func TestSourceSelect(t *testing.T) {
+	cec := &fakeCec{address: gocec.DeviceRecodingDevice1}
+	mqtt := newFakeMqtt()
+	registry := newTestRegistry(t)
+	bridge := newActiveSourceBridge(cec, mqtt, registry)
+	bridge.haBridge = newTestHomeAssistantBridge(mqtt)
+	registry.RegisterDeviceAddedHandler(bridge.deviceAdded)
+
+	// The TV may be found after other devices.
+	player := addTestDevice(t, registry, gocec.DevicePlaybackDevice1, gocec.PhysicalAddress{0x10, 0}, "Player")
+	tv := addTestDevice(t, registry, gocec.DeviceTV, gocec.PhysicalAddress{0, 0}, "TV")
+	addTestDevice(t, registry, gocec.DevicePlaybackDevice2, gocec.PhysicalAddress{0x20, 0}, "Console")
+
+	_, components := mqtt.discovery(t, tv.Id)
+	options, _ := components["source"]["options"].([]any)
+	if fmt.Sprint(options) != "[Console Player TV]" {
+		t.Errorf("unexpected source options %v", options)
+	}
+	if _, other := mqtt.discovery(t, player.Id); other["source"] != nil {
+		t.Error("only the TV must have a source select")
+	}
+
+	mqtt.deliver(t, "cec2mqtt/TV/source/set", "Player")
+	assertMessages(t, cec.sent(), []gocec.Message{
+		{0x10, byte(gocec.OpcodeImageViewOn)},
+		{0x1F, byte(gocec.OpcodeSetStreamPath), 0x10, 0x00},
+	})
+
+	mqtt.deliver(t, "cec2mqtt/TV/source/set", "Unknown")
+	if len(cec.sent()) != 2 {
+		t.Error("unknown source must not be selected")
+	}
+
+	bridge.updateActiveSource(player)
+	bridge.updateActiveSource(nil)
+	if got := mqtt.messages("cec2mqtt/TV/source"); fmt.Sprint(got) != "[Player None]" {
+		t.Errorf("published sources %q, want [Player None]", got)
 	}
 }

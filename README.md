@@ -99,6 +99,8 @@ All topics are prefixed with ``<base_topic>/<mqtt_topic of the device>/``, for e
 | ``power/set`` | command | ``on`` or ``off`` |
 | ``is_active_source`` | state | ``on`` or ``off`` |
 | ``is_active_source/set`` | command | ``on``: wakes the TV and switches to this device |
+| ``source`` | state | TV only: ``mqtt_topic`` of the active device, or ``None`` |
+| ``source/set`` | command | TV only: ``mqtt_topic`` of the device to switch to |
 | ``key/set`` | command | Name of a key to send, e.g. ``select``, ``up``, ``play``, ``pause``, ``root_menu``, ``number_1`` (see [keys.go](keys.go) for all names) |
 | ``remote_key`` | event | ``{"event_type": "<key name>"}`` when the device sends a key press to cec2mqtt (e.g. the TV forwarding its remote while cec2mqtt is the active source) |
 | ``volume`` | state | ``0`` - ``100`` (audio system only) |
@@ -106,14 +108,73 @@ All topics are prefixed with ``<base_topic>/<mqtt_topic of the device>/``, for e
 | ``mute`` | state | ``on`` or ``off`` (audio system only) |
 | ``mute/set`` | command | ``on``, ``off`` or ``toggle`` (audio system only) |
 
-With the Home Assistant integration enabled, these are exposed as switches, binary sensors, buttons ("Select source",
-"Volume up", "Volume down"), a volume sensor and an event entity for remote key presses. Keys can be sent from Home Assistant
-using the ``mqtt.publish`` action:
+Keys can be sent from Home Assistant using the ``mqtt.publish`` action:
 ```yaml
 action: mqtt.publish
 data:
   topic: cec2mqtt/Player/key/set
   payload: play
+```
+
+## Home Assistant
+With the Home Assistant integration enabled, every CEC device shows up as a device in Home Assistant with these entities:
+
+| Entity | Type | Devices |
+| --- | --- | --- |
+| Power | switch | all |
+| Active source | binary sensor | all |
+| Source | select, listing all devices | TV |
+| Volume | sensor (%) | audio system |
+| Volume up / Volume down | button | audio system |
+| Mute | switch | audio system |
+| Remote key | event | TV, and other devices once they send a key press |
+
+cec2mqtt uses Home Assistant's device based MQTT discovery (one discovery message per device). Entities created by earlier
+versions, which used one discovery message per entity, are migrated automatically and keep their entity ID, name and history.
+
+### Media player
+Home Assistant's MQTT integration doesn't support media players, but the entities above can be combined into one using the
+[Universal Media Player](https://www.home-assistant.io/integrations/universal/). This gives you a regular media player card
+with power, source selection and volume controls. Add this to ``configuration.yaml`` and adjust the entity IDs to match yours:
+```yaml
+media_player:
+  - platform: universal
+    name: Living room TV
+    unique_id: living_room_tv
+    children: []
+    commands:
+      turn_on:
+        action: switch.turn_on
+        target:
+          entity_id: switch.tv_power
+      turn_off:
+        action: switch.turn_off
+        target:
+          entity_id: switch.tv_power
+      select_source:
+        action: select.select_option
+        target:
+          entity_id: select.tv_source
+        data:
+          option: "{{ source }}"
+      # Remove the volume commands and is_volume_muted if there is no audio system
+      volume_up:
+        action: button.press
+        target:
+          entity_id: button.receiver_volume_up
+      volume_down:
+        action: button.press
+        target:
+          entity_id: button.receiver_volume_down
+      volume_mute:
+        action: switch.toggle
+        target:
+          entity_id: switch.receiver_mute
+    attributes:
+      state: switch.tv_power
+      source: select.tv_source
+      source_list: select.tv_source|options
+      is_volume_muted: switch.receiver_mute
 ```
 
 ### Command line options

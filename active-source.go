@@ -2,6 +2,7 @@ package main
 
 import (
 	"log/slog"
+	"sort"
 	"sync"
 	"time"
 
@@ -18,12 +19,28 @@ type ActiveSourceBridge struct {
 	mux sync.Mutex
 
 	cec            *Cec
-	mqtt           *Mqtt
+	sender         cecSender
+	mqtt           mqttClient
 	activeSource   *Device
 	devices        *DeviceRegistry
 	monitor        *Monitor
 	allowedSources map[gocec.LogicalAddress]bool
 	haBridge       *HomeAssistantBridge
+
+	// tv is the TV, which has the "source" select listing all sources.
+	tv *Device
+	// sources holds all (not ignored) devices by their MQTT topic name.
+	sources map[string]*Device
+}
+
+func newActiveSourceBridge(sender cecSender, mqtt mqttClient, devices *DeviceRegistry) *ActiveSourceBridge {
+	return &ActiveSourceBridge{
+		sender:         sender,
+		mqtt:           mqtt,
+		devices:        devices,
+		allowedSources: make(map[gocec.LogicalAddress]bool),
+		sources:        make(map[string]*Device),
+	}
 }
 
 func InitActiveSourceBridge(container *Container) {
@@ -31,12 +48,13 @@ func InitActiveSourceBridge(container *Container) {
 	mqtt := container.Get("mqtt").(*Mqtt)
 	devices := container.Get("devices").(*DeviceRegistry)
 
-	bridge := &ActiveSourceBridge{
-		cec:            cec,
-		mqtt:           mqtt,
-		activeSource:   nil,
-		devices:        devices,
-		allowedSources: make(map[gocec.LogicalAddress]bool),
+	bridge := newActiveSourceBridge(cec, mqtt, devices)
+	bridge.cec = cec
+
+	if haBridge, ok := container.Get("home-assistant").(*HomeAssistantBridge); ok {
+		slog.Info("Enabling Home Assistant configuration for active source")
+		bridge.haBridge = haBridge
+		haBridge.RegisterBirthHandler(bridge.resendAll)
 	}
 
 	bridge.monitor = CreateMonitor(
@@ -47,35 +65,7 @@ func InitActiveSourceBridge(container *Container) {
 		1*time.Minute,
 	)
 
-	devices.RegisterDeviceAddedHandler(func(device *Device) {
-		bridge.mux.Lock()
-		bridge.allowedSources[device.LogicalAddress] = true
-		bridge.mux.Unlock()
-
-		mqtt.Subscribe(mqtt.BuildTopic(device, "is_active_source/set"), 0, func(payload []byte) {
-			if string(payload) != "on" {
-				slog.Debug("Ignoring active source request, only \"on\" is supported",
-					"device.id", device.Id,
-					"payload", string(payload),
-				)
-				return
-			}
-
-			slog.Info("Selecting device as active source as requested on MQTT", "device.id", device.Id)
-			selectSource(cec, device)
-			bridge.monitor.Reset()
-		})
-	})
-
-	if haBridge, ok := container.Get("home-assistant").(*HomeAssistantBridge); ok {
-		slog.Info("Enabling Home Assistant configuration for active source")
-		bridge.haBridge = haBridge
-		devices.RegisterDeviceAddedHandler(func(device *Device) {
-			haBridge.RegisterBinarySensor(device, "is_active_source")
-			haBridge.RegisterButton(device, "select_source", "is_active_source", "on")
-		})
-		haBridge.RegisterBirthHandler(bridge.resendAll)
-	}
+	devices.RegisterDeviceAddedHandler(bridge.deviceAdded)
 
 	cec.RegisterMessageHandler(func(message gocec.Message) {
 		slog.Debug("Restarting active source monitor",
@@ -175,6 +165,8 @@ func (bridge *ActiveSourceBridge) updateActiveSourceLocked(newSource *Device) {
 	)
 
 	mqtt := bridge.mqtt
+	bridge.publishSourceLocked(newSource)
+
 	if bridge.activeSource != nil {
 		slog.Debug("Setting device as inactive source", "device.id", bridge.activeSource.Id)
 
@@ -215,10 +207,18 @@ func (bridge *ActiveSourceBridge) resendAll() {
 	activeSource := bridge.activeSource
 	bridge.mux.Unlock()
 
-	for _, device := range bridge.devices.List() {
+	bridge.mux.Lock()
+	bridge.registerSourceSelectLocked()
+	bridge.publishSourceLocked(activeSource)
+	sources := make([]*Device, 0, len(bridge.sources))
+	for _, device := range bridge.sources {
+		sources = append(sources, device)
+	}
+	bridge.mux.Unlock()
+
+	for _, device := range sources {
 		if bridge.haBridge != nil {
 			bridge.haBridge.RegisterBinarySensor(device, "is_active_source")
-			bridge.haBridge.RegisterButton(device, "select_source", "is_active_source", "on")
 		}
 
 		value := "off"
@@ -229,6 +229,95 @@ func (bridge *ActiveSourceBridge) resendAll() {
 		bridge.mqtt.Publish(bridge.mqtt.BuildTopic(device, "is_active_source"), 0, false, value)
 
 	}
+}
+
+func (bridge *ActiveSourceBridge) deviceAdded(device *Device) {
+	bridge.mux.Lock()
+	bridge.allowedSources[device.LogicalAddress] = true
+	bridge.sources[device.Config.MqttTopic] = device
+	if device.LogicalAddress == gocec.DeviceTV {
+		bridge.tv = device
+	}
+	bridge.registerSourceSelectLocked()
+	bridge.mux.Unlock()
+
+	bridge.mqtt.Subscribe(bridge.mqtt.BuildTopic(device, "is_active_source/set"), 0, func(payload []byte) {
+		if string(payload) != "on" {
+			slog.Debug("Ignoring active source request, only \"on\" is supported",
+				"device.id", device.Id,
+				"payload", string(payload),
+			)
+			return
+		}
+
+		slog.Info("Selecting device as active source as requested on MQTT", "device.id", device.Id)
+		bridge.selectSource(device)
+	})
+
+	if device.LogicalAddress == gocec.DeviceTV {
+		bridge.mqtt.Subscribe(bridge.mqtt.BuildTopic(device, "source/set"), 0, bridge.handleSourceRequest)
+	}
+
+	if bridge.haBridge != nil {
+		bridge.haBridge.RegisterBinarySensor(device, "is_active_source")
+	}
+}
+
+// handleSourceRequest handles <TV>/source/set, which contains the MQTT topic
+// name of the device to switch to.
+func (bridge *ActiveSourceBridge) handleSourceRequest(payload []byte) {
+	name := string(payload)
+
+	bridge.mux.Lock()
+	device, ok := bridge.sources[name]
+	bridge.mux.Unlock()
+
+	if !ok {
+		slog.Warn("Unknown source requested on MQTT", "source", name)
+		return
+	}
+
+	slog.Info("Selecting source as requested on MQTT", "source", name, "device.id", device.Id)
+	bridge.selectSource(device)
+}
+
+func (bridge *ActiveSourceBridge) selectSource(device *Device) {
+	selectSource(bridge.sender, device)
+	if bridge.monitor != nil {
+		bridge.monitor.Reset()
+	}
+}
+
+// sourceNamesLocked returns the sorted MQTT topic names of all sources.
+func (bridge *ActiveSourceBridge) sourceNamesLocked() []string {
+	names := make([]string, 0, len(bridge.sources))
+	for name := range bridge.sources {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// registerSourceSelectLocked (re)registers the "source" select of the TV, as
+// the options change with every device found. Must hold bridge.mux.
+func (bridge *ActiveSourceBridge) registerSourceSelectLocked() {
+	if bridge.haBridge == nil || bridge.tv == nil {
+		return
+	}
+	bridge.haBridge.RegisterSelect(bridge.tv, "source", bridge.sourceNamesLocked())
+}
+
+// publishSourceLocked publishes the active source on <TV>/source. Must hold bridge.mux.
+func (bridge *ActiveSourceBridge) publishSourceLocked(source *Device) {
+	if bridge.tv == nil {
+		return
+	}
+
+	value := "None" // resets the select to unknown in Home Assistant
+	if source != nil {
+		value = source.Config.MqttTopic
+	}
+	bridge.mqtt.Publish(bridge.mqtt.BuildTopic(bridge.tv, "source"), 0, false, value)
 }
 
 // selectSource makes the device the active source using One Touch Play: the TV
