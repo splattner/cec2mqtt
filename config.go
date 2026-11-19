@@ -73,27 +73,3 @@ func ParseConfig(configPath string) (*Config, error) {
 
 	return &config, nil
 }
-
-func (config *Config) Save(configPath string) error {
-	data, err := yaml.Marshal(config)
-
-	if err != nil {
-		log.WithFields(log.Fields{
-			"error": err,
-		}).Error("Failed to convert configuration into YAML")
-
-		return err
-	}
-
-	err = os.WriteFile(configPath+"config.yaml", data, 0644)
-	if err != nil {
-		log.WithFields(log.Fields{
-			"error":       err,
-			"config_file": configPath + "config.yaml",
-		}).Error("Failed to save configuration to file")
-
-		return err
-	}
-
-	return nil
-}

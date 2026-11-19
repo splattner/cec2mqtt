@@ -6,12 +6,14 @@ import (
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 	"os"
+	"path/filepath"
 	"sync"
 )
 
 type DeviceAddedHandler func(device *Device)
 
 type DeviceRegistry struct {
+	dataDirectory string
 	configDevices map[string]*DeviceConfig
 
 	deviceAddedHandlers []DeviceAddedHandler
@@ -43,6 +45,7 @@ type CreateCecDeviceDescription func() *CecDeviceDescription
 
 func NewDeviceRegistry(dataDirectory string) *DeviceRegistry {
 	return &DeviceRegistry{
+		dataDirectory:       dataDirectory,
 		configDevices:       loadDevicesFromConfig(dataDirectory),
 		deviceAddedHandlers: make([]DeviceAddedHandler, 0),
 		devices:             make(map[gocec.LogicalAddress]*Device),
@@ -182,6 +185,9 @@ func (registry *DeviceRegistry) GetByCecDevice(address gocec.LogicalAddress, cre
 	registry.devices[device.LogicalAddress] = device
 	registry.physicalAddressMap[description.physicalAddress] = device
 
+	// Persist immediately so newly found devices (or updated addresses) survive a crash.
+	_ = registry.saveLocked()
+
 	registry.devicesMutex.Unlock()
 
 	logContext = logContext.WithFields(log.Fields{
@@ -206,6 +212,13 @@ func (registry *DeviceRegistry) GetByCecDevice(address gocec.LogicalAddress, cre
 	return device
 }
 
+// FindDevice looks up the configuration of a device. An exact match on physical
+// address, vendor and OSD name always wins. Otherwise a device matching on
+// either physical address and vendor, or vendor and OSD name, is used, but only
+// when exactly one such device exists. When nothing matches a new device
+// configuration is created.
+//
+// Must be called while holding registry.devicesMutex.
 func (registry *DeviceRegistry) FindDevice(physicalAddress string, vendorId int, name string) *DeviceConfig {
 	logContext := log.WithFields(log.Fields{
 		"physical_address": physicalAddress,
@@ -213,43 +226,35 @@ func (registry *DeviceRegistry) FindDevice(physicalAddress string, vendorId int,
 		"name":             name,
 	})
 	logContext.Trace("Searching device in config")
-	var option *DeviceConfig
 
+	var candidates []*DeviceConfig
 	for _, device := range registry.configDevices {
-		deviceLogContext := logContext.WithFields(log.Fields{
-			"device.id":               device.Id,
-			"device.physical_address": device.PhysicalAddress,
-			"device.vendor_id":        device.VendorId,
-			"device.osd":              device.OSD,
-		})
-
-		if device.PhysicalAddress == physicalAddress && device.VendorId == vendorId {
-			if device.OSD == name {
-				// Exact match so must be it
-
-				deviceLogContext.Info("Matched exact device from config")
-
-				return device
-			}
-
-			if option != nil {
-				deviceLogContext.Debug("Multiple possible matches are found. Skipping.")
-				option = nil
-				break
-			}
-
-			deviceLogContext.Debug("Found possible match")
-			option = device
-		} else if device.VendorId == vendorId && device.OSD == name {
-			if option != nil {
-				deviceLogContext.Debug("Multiple possible matches are found. Skipping.")
-				option = nil
-				break
-			}
-
-			deviceLogContext.Debug("Found possible match")
-			option = device
+		if device.VendorId != vendorId {
+			continue
 		}
+
+		if device.PhysicalAddress == physicalAddress && device.OSD == name {
+			logContext.WithFields(log.Fields{
+				"device.id": device.Id,
+			}).Info("Matched exact device from config")
+
+			return device
+		}
+
+		if device.PhysicalAddress == physicalAddress || device.OSD == name {
+			candidates = append(candidates, device)
+		}
+	}
+
+	var option *DeviceConfig
+	switch len(candidates) {
+	case 0:
+	case 1:
+		option = candidates[0]
+	default:
+		logContext.WithFields(log.Fields{
+			"candidates": len(candidates),
+		}).Debug("Multiple possible matches are found. Creating new device.")
 	}
 
 	if option != nil {
@@ -296,27 +301,63 @@ func (registry *DeviceRegistry) FindDevice(physicalAddress string, vendorId int,
 	return device
 }
 
-func (registry *DeviceRegistry) Save(configPath string) error {
-	data, err := yaml.Marshal(registry.configDevices)
+// Save writes the devices configuration to devices.yaml in the data directory.
+func (registry *DeviceRegistry) Save() error {
+	registry.devicesMutex.Lock()
+	defer registry.devicesMutex.Unlock()
 
+	return registry.saveLocked()
+}
+
+// saveLocked must be called while holding registry.devicesMutex.
+func (registry *DeviceRegistry) saveLocked() error {
+	path := registry.dataDirectory + "devices.yaml"
+	logContext := log.WithFields(log.Fields{
+		"config_file": path,
+	})
+
+	data, err := yaml.Marshal(registry.configDevices)
 	if err != nil {
-		log.WithFields(log.Fields{
+		logContext.WithFields(log.Fields{
 			"error": err,
 		}).Error("Failed to convert devices configuration into YAML")
 		return err
 	}
 
-	err = os.WriteFile(configPath+"devices.yaml", data, 0644)
-	if err != nil {
-		log.WithFields(log.Fields{
-			"error":       err,
-			"config_file": configPath + "devices.yaml",
+	if err := writeFileAtomic(path, data, 0644); err != nil {
+		logContext.WithFields(log.Fields{
+			"error": err,
 		}).Error("Failed to save devices configuration to file")
-
 		return err
 	}
 
+	logContext.Debug("Saved devices configuration")
+
 	return nil
+}
+
+// writeFileAtomic writes data to a temporary file first and then renames it, so
+// the target file is never left half written.
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+
+	return os.Rename(tmp.Name(), path)
 }
 
 func (registry *DeviceRegistry) List() []*Device {

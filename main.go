@@ -136,6 +136,5 @@ func main() {
 	log.Info("Cec2Mqtt started")
 	<-done
 	log.Info("Exiting")
-	config.Save(dataDir)
-	devices.Save(dataDir)
+	devices.Save()
 }
