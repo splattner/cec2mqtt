@@ -147,15 +147,7 @@ func (bridge *PowerBridge) MonitorPower(deviceId string) {
 }
 
 func (bridge *PowerBridge) setPowerStatus(device *Device, status gocec.PowerStatus) {
-	var value string
-	switch status {
-	case gocec.PowerStatusOn, gocec.PowerStatusTransitionToStandby:
-		value = "on"
-	case gocec.PowerStatusStandBy, gocec.PowerStatusTransitionToOn:
-		value = "off"
-	default:
-		value = "unknown"
-	}
+	value := powerStateValue(status)
 
 	bridge.statesMutex.Lock()
 	defer bridge.statesMutex.Unlock()
@@ -184,31 +176,50 @@ func (bridge *PowerBridge) setPowerStatus(device *Device, status gocec.PowerStat
 	}
 }
 
-func (bridge *PowerBridge) createStarter(device *Device) Starter {
-	source := gocec.DeviceTV
-
-	if device.LogicalAddress == gocec.DeviceTV {
-		source = gocec.DeviceBroadcast
+// powerStateValue converts a CEC power status into the MQTT state. Transitions
+// are reported as the state the device is going to, so the state follows a
+// command right away instead of only once the transition has finished.
+func powerStateValue(status gocec.PowerStatus) string {
+	switch status {
+	case gocec.PowerStatusOn, gocec.PowerStatusTransitionToOn:
+		return "on"
+	case gocec.PowerStatusStandBy, gocec.PowerStatusTransitionToStandby:
+		return "off"
+	default:
+		return "unknown"
 	}
+}
 
-	message := gocec.NewMessage(source, device.LogicalAddress, gocec.OpcodeGiveDevicePowerStatus, []byte{})
+// powerStatusRequest creates a Give Device Power Status message from the
+// adapter to the device. It must be sent from the adapter's own logical
+// address: the Linux kernel CEC API rejects messages with another initiator
+// (EINVAL), and the device sends its reply to the initiator.
+func powerStatusRequest(adapter gocec.LogicalAddress, device *Device) gocec.Message {
+	return gocec.NewMessage(adapter, device.LogicalAddress, gocec.OpcodeGiveDevicePowerStatus, []byte{})
+}
 
-	context := slog.With(
-		"device.logical_address", device.LogicalAddress,
-		"device.id", device.Id,
-		"source", source,
-		"message", []byte(message),
-	)
-
+// createStarter creates the starter of the power monitor, which asks the device
+// for its power status directly. Unlike the runner, which reads libcec's power
+// status (cached for up to 30 seconds), this gets the current status right away.
+func (bridge *PowerBridge) createStarter(device *Device) Starter {
 	var lastSend time.Time
 
 	return func() {
+		// Several resets shortly after each other (like a command followed by
+		// CEC messages caused by it) only need one request.
 		now := time.Now()
-		if now.Sub(lastSend) > 10*time.Second {
-			trace(context, "Requesting power state from monitor")
-			bridge.cec.Transmit(message)
-			lastSend = now
+		if now.Sub(lastSend) < 2*time.Second {
+			return
 		}
+		lastSend = now
+
+		message := powerStatusRequest(bridge.cec.AdapterAddress(), device)
+		logTrace("Requesting power state from monitor",
+			"device.logical_address", device.LogicalAddress,
+			"device.id", device.Id,
+			"message", []byte(message),
+		)
+		bridge.cec.Transmit(message)
 	}
 }
 

@@ -86,18 +86,24 @@ func InitActiveSourceBridge(container *Container) {
 			"message.raw", []byte(message),
 		)
 
-		defer bridge.monitor.Reset()
-
 		parameters := message.Parameters()
 		if len(parameters) < 1 {
 			return
 		}
 
 		powerStatus := gocec.PowerStatus(parameters[0])
+		allowed := powerStatus != gocec.PowerStatusStandBy
 
 		bridge.mux.Lock()
 		defer bridge.mux.Unlock()
-		bridge.allowedSources[message.Source()] = powerStatus != gocec.PowerStatusStandBy
+
+		// Only check the active source more often when the power status changed.
+		// Power status is polled regularly, and requesting the active source
+		// while nothing is active causes a lot of (unanswered) CEC traffic.
+		if previous, ok := bridge.allowedSources[message.Source()]; !ok || previous != allowed {
+			defer bridge.monitor.Reset()
+		}
+		bridge.allowedSources[message.Source()] = allowed
 
 		if bridge.activeSource == nil || message.Source() != bridge.activeSource.LogicalAddress {
 			return
