@@ -5,7 +5,7 @@ import (
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
-	"io/ioutil"
+	"os"
 	"sync"
 )
 
@@ -27,7 +27,7 @@ type DeviceConfig struct {
 	VendorId        int    `yaml:"vendor_id"`
 	OSD             string `yaml:"osd"`
 	MqttTopic       string `yaml:"mqtt_topic"`
-	Ignore			bool `yaml:"ignore"`
+	Ignore          bool   `yaml:"ignore"`
 }
 
 type Device struct {
@@ -57,7 +57,7 @@ func loadDevicesFromConfig(dataDirectory string) (devices map[string]*DeviceConf
 	logContext.Info("Reading devices from config file")
 
 	devices = make(map[string]*DeviceConfig)
-	data, err := ioutil.ReadFile(dataDirectory + "devices.yaml")
+	data, err := os.ReadFile(dataDirectory + "devices.yaml")
 	if err != nil {
 		logContext.Info("Devices configuration file does not exist yet")
 		return
@@ -115,7 +115,7 @@ func (registry *DeviceRegistry) GetByCecDevice(address gocec.LogicalAddress, cre
 		registry.devicesMutex.Unlock()
 
 		logContext = logContext.WithFields(log.Fields{
-			"device.id":       device.Config.Id,
+			"device.id": device.Config.Id,
 		})
 
 		if device.Config.Ignore {
@@ -137,8 +137,8 @@ func (registry *DeviceRegistry) GetByCecDevice(address gocec.LogicalAddress, cre
 		registry.devicesMutex.Unlock()
 		logContext.WithFields(log.Fields{
 			"description.physical_address": description.physicalAddress,
-			"description.vendor": uint(description.vendor),
-			"description.osd": description.OSD,
+			"description.vendor":           uint(description.vendor),
+			"description.osd":              description.OSD,
 		}).Debug("Ignoring device because it is incomplete or cec2mqtt")
 
 		return nil
@@ -306,7 +306,7 @@ func (registry *DeviceRegistry) Save(configPath string) error {
 		return err
 	}
 
-	err = ioutil.WriteFile(configPath+"devices.yaml", data, 0644)
+	err = os.WriteFile(configPath+"devices.yaml", data, 0644)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"error":       err,
