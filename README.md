@@ -3,7 +3,9 @@ cec2mqtt enables you to read the status and control your CEC enabled devices usi
 Currently its supported features are:
 * Reading the power status (on/off) of devices
 * Powering on and off devices
-* Reading which device is active
+* Reading which device is active, and switching to a device
+* Reading and changing the volume and mute status of the audio system (AV receiver / soundbar)
+* Sending remote control key presses to devices, and receiving key presses from the TV remote
 * Home Assistant integration for auto discovery
 
 # Requirements
@@ -72,6 +74,9 @@ mqtt:
     birth_message: online
     will_message: offline
     base_topic: cec2mqtt
+    client_id: cec2mqtt
+cec:
+    adapter: /dev/cec0
 home_assistant:
     enable: true
     discovery_prefix: homeassistant
@@ -79,8 +84,47 @@ home_assistant:
     birth_payload: online
 ```
 
+``client_id`` sets the MQTT client ID; a random one is used when it's not set. ``cec.adapter`` selects the CEC adapter to use when the
+system has more than one (for example ``/dev/cec1`` or ``/dev/ttyACM0``); by default the first adapter found is used.
+
 ``birth_topic`` and ``birth_payload`` are used to detect Home Assistant restarts, after which all entities and states are republished.
 They default to ``<discovery_prefix>/status`` and ``online``, matching Home Assistant's defaults.
+
+## MQTT topics
+All topics are prefixed with ``<base_topic>/<mqtt_topic of the device>/``, for example ``cec2mqtt/TV/power``.
+
+| Topic | Direction | Payload |
+| --- | --- | --- |
+| ``power`` | state | ``on``, ``off`` or ``unknown`` |
+| ``power/set`` | command | ``on`` or ``off`` |
+| ``is_active_source`` | state | ``on`` or ``off`` |
+| ``is_active_source/set`` | command | ``on``: wakes the TV and switches to this device |
+| ``key/set`` | command | Name of a key to send, e.g. ``select``, ``up``, ``play``, ``pause``, ``root_menu``, ``number_1`` (see [keys.go](keys.go) for all names) |
+| ``remote_key`` | event | ``{"event_type": "<key name>"}`` when the device sends a key press to cec2mqtt (e.g. the TV forwarding its remote while cec2mqtt is the active source) |
+| ``volume`` | state | ``0`` - ``100`` (audio system only) |
+| ``volume/set`` | command | ``up`` or ``down`` (audio system only) |
+| ``mute`` | state | ``on`` or ``off`` (audio system only) |
+| ``mute/set`` | command | ``on``, ``off`` or ``toggle`` (audio system only) |
+
+With the Home Assistant integration enabled, these are exposed as switches, binary sensors, buttons ("Select source",
+"Volume up", "Volume down"), a volume sensor and an event entity for remote key presses. Keys can be sent from Home Assistant
+using the ``mqtt.publish`` action:
+```yaml
+action: mqtt.publish
+data:
+  topic: cec2mqtt/Player/key/set
+  payload: play
+```
+
+### Command line options
+| Option | Default | Description |
+| --- | --- | --- |
+| ``-data-dir`` | ``/data/cec2mqtt/`` | Directory containing ``config.yaml`` and ``devices.yaml`` |
+| ``-log-level`` | ``info`` | One of ``error``, ``warning``, ``info``, ``debug``, ``trace`` |
+| ``-log-format`` | ``text`` | ``text`` or ``json`` |
+| ``-log-cec-messages`` | ``false`` | Also log the internal libcec log (at debug level) |
+
+When using Docker the options can be appended to the ``docker run`` command, or be set using ``command:`` in ``docker-compose.yaml``.
 
 ### Device configuration
 Devices which have been found in the CEC network can be configured as well. For this you **must** first stop cec2mqtt. When Cec2Mqtt is stopped you

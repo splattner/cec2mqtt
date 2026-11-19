@@ -2,11 +2,11 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/eclipse/paho.mqtt.golang"
-	log "github.com/sirupsen/logrus"
 )
 
 type MqttConnectedHandler func()
@@ -39,6 +39,10 @@ func ConnectMqtt(config *Config) (*Mqtt, error) {
 
 	options.AddBroker(mqttConfig.Host)
 
+	if mqttConfig.ClientId != "" {
+		options.SetClientID(mqttConfig.ClientId)
+	}
+
 	if mqttConfig.Username != "" {
 		options.SetUsername(mqttConfig.Username)
 	}
@@ -59,18 +63,14 @@ func ConnectMqtt(config *Config) (*Mqtt, error) {
 	options.SetConnectRetryInterval(5 * time.Second)
 
 	options.SetConnectionLostHandler(func(_ mqtt.Client, err error) {
-		log.WithFields(log.Fields{
-			"error": err,
-		}).Warn("Lost connection to MQTT")
+		slog.Warn("Lost connection to MQTT", "error", err)
 	})
 
 	options.SetOnConnectHandler(inst.onConnect)
 
 	inst.client = mqtt.NewClient(options)
 
-	log.WithFields(log.Fields{
-		"host": mqttConfig.Host,
-	}).Info("Connecting to MQTT")
+	slog.Info("Connecting to MQTT", "host", mqttConfig.Host)
 
 	token := inst.client.Connect()
 	token.Wait()
@@ -82,7 +82,7 @@ func ConnectMqtt(config *Config) (*Mqtt, error) {
 }
 
 func (m *Mqtt) onConnect(client mqtt.Client) {
-	log.Info("Connected to MQTT")
+	slog.Info("Connected to MQTT")
 	if m.config.StateTopic != "" && m.config.BirthMessage != "" {
 		client.Publish(m.config.StateTopic, 0, true, m.config.BirthMessage)
 	}
@@ -111,20 +111,20 @@ func (m *Mqtt) BuildTopic(device *Device, suffix string) string {
 
 func (m *Mqtt) Publish(topic string, qos byte, retained bool, payload interface{}) {
 	m.client.Publish(topic, qos, retained, payload)
-	log.WithFields(log.Fields{
-		"topic":    topic,
-		"qos":      qos,
-		"retained": retained,
-		"payload":  payload,
-	}).Trace("Published MQTT message")
+	logTrace("Published MQTT message",
+		"topic", topic,
+		"qos", qos,
+		"retained", retained,
+		"payload", payload,
+	)
 }
 
 func (m *Mqtt) Subscribe(topic string, qos byte, callback MessageHandler) {
 	handler := func(_ mqtt.Client, message mqtt.Message) {
-		log.WithFields(log.Fields{
-			"topic":   message.Topic(),
-			"payload": string(message.Payload()),
-		}).Trace("Handling incoming MQTT message")
+		logTrace("Handling incoming MQTT message",
+			"topic", message.Topic(),
+			"payload", string(message.Payload()),
+		)
 		callback(message.Payload())
 	}
 
@@ -133,10 +133,10 @@ func (m *Mqtt) Subscribe(topic string, qos byte, callback MessageHandler) {
 	m.mux.Unlock()
 
 	m.client.Subscribe(topic, qos, handler)
-	log.WithFields(log.Fields{
-		"topic": topic,
-		"qos":   qos,
-	}).Trace("Subscribed to MQTT topic")
+	logTrace("Subscribed to MQTT topic",
+		"topic", topic,
+		"qos", qos,
+	)
 }
 
 func (m *Mqtt) RegisterConnectedHandler(handler MqttConnectedHandler) {

@@ -1,11 +1,11 @@
 package main
 
 import (
+	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/RobertMe/gocec"
-	log "github.com/sirupsen/logrus"
 )
 
 func init() {
@@ -49,37 +49,52 @@ func InitActiveSourceBridge(container *Container) {
 
 	devices.RegisterDeviceAddedHandler(func(device *Device) {
 		bridge.mux.Lock()
-		defer bridge.mux.Unlock()
 		bridge.allowedSources[device.LogicalAddress] = true
+		bridge.mux.Unlock()
+
+		mqtt.Subscribe(mqtt.BuildTopic(device, "is_active_source/set"), 0, func(payload []byte) {
+			if string(payload) != "on" {
+				slog.Debug("Ignoring active source request, only \"on\" is supported",
+					"device.id", device.Id,
+					"payload", string(payload),
+				)
+				return
+			}
+
+			slog.Info("Selecting device as active source as requested on MQTT", "device.id", device.Id)
+			selectSource(cec, device)
+			bridge.monitor.Reset()
+		})
 	})
 
 	if haBridge, ok := container.Get("home-assistant").(*HomeAssistantBridge); ok {
-		log.Info("Enabling Home Assistant configuration for active source")
+		slog.Info("Enabling Home Assistant configuration for active source")
 		bridge.haBridge = haBridge
 		devices.RegisterDeviceAddedHandler(func(device *Device) {
 			haBridge.RegisterBinarySensor(device, "is_active_source")
+			haBridge.RegisterButton(device, "select_source", "is_active_source", "on")
 		})
 		haBridge.RegisterBirthHandler(bridge.resendAll)
 	}
 
 	cec.RegisterMessageHandler(func(message gocec.Message) {
-		log.WithFields(log.Fields{
-			"message.source":      message.Source(),
-			"message.destination": message.Destination(),
-			"message.opcode":      message.Opcode(),
-			"message.raw":         []byte(message),
-		}).Debug("Restarting active source monitor")
+		slog.Debug("Restarting active source monitor",
+			"message.source", message.Source(),
+			"message.destination", message.Destination(),
+			"message.opcode", message.Opcode(),
+			"message.raw", []byte(message),
+		)
 
 		bridge.monitor.Reset()
 	}, gocec.OpcodeActiveSource, gocec.OpcodeSetStreamPath)
 
 	cec.RegisterMessageHandler(func(message gocec.Message) {
-		log.WithFields(log.Fields{
-			"message.source":      message.Source(),
-			"message.destination": message.Destination(),
-			"message.opcode":      message.Opcode(),
-			"message.raw":         []byte(message),
-		}).Debug("Updating active source based on power status")
+		slog.Debug("Updating active source based on power status",
+			"message.source", message.Source(),
+			"message.destination", message.Destination(),
+			"message.opcode", message.Opcode(),
+			"message.raw", []byte(message),
+		)
 
 		defer bridge.monitor.Reset()
 
@@ -105,7 +120,7 @@ func InitActiveSourceBridge(container *Container) {
 
 	cec.RegisterMessageHandler(func(message gocec.Message) {
 		if message.Source() == gocec.DeviceTV {
-			log.Debug("Setting active source to nil because TV is in standby")
+			slog.Debug("Setting active source to nil because TV is in standby")
 			bridge.updateActiveSource(nil)
 		}
 	}, gocec.OpcodeStandby)
@@ -134,10 +149,10 @@ func (bridge *ActiveSourceBridge) updateActiveSourceLocked(newSource *Device) {
 	if newSource != nil {
 		if allowed, ok := bridge.allowedSources[newSource.LogicalAddress]; ok && !allowed {
 			if bridge.activeSource == nil {
-				log.WithFields(log.Fields{
-					"device.id":              newSource.Id,
-					"device.logical_address": newSource.LogicalAddress,
-				}).Trace("Skipping active source update because active device still is in standby")
+				logTrace("Skipping active source update because active device still is in standby",
+					"device.id", newSource.Id,
+					"device.logical_address", newSource.LogicalAddress,
+				)
 
 				return
 			}
@@ -154,24 +169,20 @@ func (bridge *ActiveSourceBridge) updateActiveSourceLocked(newSource *Device) {
 		to = newSource.Id
 	}
 
-	log.WithFields(log.Fields{
-		"from": from,
-		"to":   to,
-	}).Info("Updating active source")
+	slog.Info("Updating active source",
+		"from", from,
+		"to", to,
+	)
 
 	mqtt := bridge.mqtt
 	if bridge.activeSource != nil {
-		log.WithFields(log.Fields{
-			"device.id": bridge.activeSource.Id,
-		}).Debug("Setting device as inactive source")
+		slog.Debug("Setting device as inactive source", "device.id", bridge.activeSource.Id)
 
 		mqtt.Publish(mqtt.BuildTopic(bridge.activeSource, "is_active_source"), 0, false, "off")
 	}
 
 	if newSource != nil {
-		log.WithFields(log.Fields{
-			"device.id": newSource.Id,
-		}).Debug("Setting device as active source")
+		slog.Debug("Setting device as active source", "device.id", newSource.Id)
 
 		mqtt.Publish(mqtt.BuildTopic(newSource, "is_active_source"), 0, false, "on")
 	}
@@ -190,16 +201,16 @@ func (bridge *ActiveSourceBridge) checkActiveSource() {
 		}
 	}
 
-	log.WithFields(log.Fields{
-		"active_source.logical_address": address,
-		"active_source.id":              newSourceId,
-	}).Trace("Updating active source from monitor")
+	logTrace("Updating active source from monitor",
+		"active_source.logical_address", address,
+		"active_source.id", newSourceId,
+	)
 
 	bridge.updateActiveSource(newSource)
 }
 
 func (bridge *ActiveSourceBridge) resendAll() {
-	log.Debug("Resending all active source states")
+	slog.Debug("Resending all active source states")
 	bridge.mux.Lock()
 	activeSource := bridge.activeSource
 	bridge.mux.Unlock()
@@ -207,6 +218,7 @@ func (bridge *ActiveSourceBridge) resendAll() {
 	for _, device := range bridge.devices.List() {
 		if bridge.haBridge != nil {
 			bridge.haBridge.RegisterBinarySensor(device, "is_active_source")
+			bridge.haBridge.RegisterButton(device, "select_source", "is_active_source", "on")
 		}
 
 		value := "off"
@@ -217,4 +229,16 @@ func (bridge *ActiveSourceBridge) resendAll() {
 		bridge.mqtt.Publish(bridge.mqtt.BuildTopic(device, "is_active_source"), 0, false, value)
 
 	}
+}
+
+// selectSource makes the device the active source using One Touch Play: the TV
+// is woken up (Image View On) and asked to switch to the physical address of
+// the device (Set Stream Path). The device itself then announces it is the
+// active source.
+func selectSource(cec cecSender, device *Device) {
+	source := cec.AdapterAddress()
+	address := device.CecDevice.physicalAddress
+
+	cec.Transmit(gocec.NewMessage(source, gocec.DeviceTV, gocec.OpcodeImageViewOn, []byte{}))
+	cec.Transmit(gocec.NewMessage(source, gocec.DeviceBroadcast, gocec.OpcodeSetStreamPath, []byte{address[0], address[1]}))
 }

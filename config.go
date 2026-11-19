@@ -1,10 +1,11 @@
 package main
 
 import (
-	log "github.com/sirupsen/logrus"
-	"gopkg.in/yaml.v3"
+	"log/slog"
 	"os"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 type MqttConfig struct {
@@ -15,6 +16,13 @@ type MqttConfig struct {
 	BirthMessage string `yaml:"birth_message"`
 	WillMessage  string `yaml:"will_message"`
 	BaseTopic    string `yaml:"base_topic"`
+	ClientId     string `yaml:"client_id"`
+}
+
+type CecConfig struct {
+	// Adapter is the path of the CEC adapter to use, e.g. /dev/cec0 or
+	// /dev/ttyACM0. When empty the first adapter found is used.
+	Adapter string `yaml:"adapter"`
 }
 
 type HomeAssistantConfig struct {
@@ -26,19 +34,16 @@ type HomeAssistantConfig struct {
 
 type Config struct {
 	Mqtt          MqttConfig
+	Cec           CecConfig           `yaml:"cec"`
 	HomeAssistant HomeAssistantConfig `yaml:"home_assistant"`
 }
 
 func ParseConfig(configPath string) (*Config, error) {
-	logContext := log.WithFields(log.Fields{
-		"config_file": configPath + "config.yaml",
-	})
+	logContext := slog.With("config_file", configPath+"config.yaml")
 	logContext.Info("Reading configuration")
 	data, err := os.ReadFile(configPath + "config.yaml")
 	if nil != err {
-		logContext.WithFields(log.Fields{
-			"error": err,
-		}).Error("Configuration could not be read")
+		logContext.Error("Configuration could not be read", "error", err)
 		return nil, err
 	}
 
@@ -46,54 +51,28 @@ func ParseConfig(configPath string) (*Config, error) {
 	err = yaml.Unmarshal(data, &config)
 
 	if err != nil {
-		logContext.WithFields(log.Fields{
-			"error": err,
-		}).Error("Configuration file could not be parsed as valid YAML")
+		logContext.Error("Configuration file could not be parsed as valid YAML", "error", err)
 		return nil, err
 	}
 
 	if config.HomeAssistant.Enable {
 		if config.HomeAssistant.DiscoveryPrefix == "" {
-			log.Debug("Home assistant integration is enabled but discovery prefix is not set. Setting default.")
+			slog.Debug("Home assistant integration is enabled but discovery prefix is not set. Setting default.")
 			config.HomeAssistant.DiscoveryPrefix = "homeassistant"
 		} else {
 			config.HomeAssistant.DiscoveryPrefix = strings.Trim(config.HomeAssistant.DiscoveryPrefix, "/")
 		}
 
 		if config.HomeAssistant.BirthTopic == "" {
-			log.Debug("Home Assistant integration is enabled but birth topic is not set. Setting default.")
+			slog.Debug("Home Assistant integration is enabled but birth topic is not set. Setting default.")
 			config.HomeAssistant.BirthTopic = config.HomeAssistant.DiscoveryPrefix + "/status"
 		}
 
 		if config.HomeAssistant.BirthPayload == "" {
-			log.Debug("Home Assistant integration is enabled but birth payload is not set. Setting default.")
+			slog.Debug("Home Assistant integration is enabled but birth payload is not set. Setting default.")
 			config.HomeAssistant.BirthPayload = "online"
 		}
 	}
 
 	return &config, nil
-}
-
-func (config *Config) Save(configPath string) error {
-	data, err := yaml.Marshal(config)
-
-	if err != nil {
-		log.WithFields(log.Fields{
-			"error": err,
-		}).Error("Failed to convert configuration into YAML")
-
-		return err
-	}
-
-	err = os.WriteFile(configPath+"config.yaml", data, 0644)
-	if err != nil {
-		log.WithFields(log.Fields{
-			"error":       err,
-			"config_file": configPath + "config.yaml",
-		}).Error("Failed to save configuration to file")
-
-		return err
-	}
-
-	return nil
 }

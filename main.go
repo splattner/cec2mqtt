@@ -2,7 +2,8 @@ package main
 
 import (
 	"flag"
-	log "github.com/sirupsen/logrus"
+	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"sort"
@@ -48,33 +49,22 @@ func main() {
 	flag.StringVar(&dataDir, "data-dir", "/data/cec2mqtt/", "Sets the directory where the data, including config, files are stored")
 
 	var logLevel string
-	flag.StringVar(&logLevel, "log-level", "info", "Sets the log level. Options are panic, fatal, error, warning, info, debug, trace")
+	flag.StringVar(&logLevel, "log-level", "info", "Sets the log level. Options are error, warning, info, debug, trace")
+
+	var logFormat string
+	flag.StringVar(&logFormat, "log-format", "text", "Sets the log format. Options are text, json")
 
 	var logCecMessages bool
 	flag.BoolVar(&logCecMessages, "log-cec-messages", false, "Enables logging of the libcec log")
 
 	flag.Parse()
 
-	switch logLevel {
-	case "panic":
-		log.SetLevel(log.PanicLevel)
-	case "fatal":
-		log.SetLevel(log.FatalLevel)
-	case "error":
-		log.SetLevel(log.ErrorLevel)
-	case "warning":
-		log.SetLevel(log.WarnLevel)
-	case "info":
-		log.SetLevel(log.InfoLevel)
-	case "debug":
-		log.SetLevel(log.DebugLevel)
-	case "trace":
-		log.SetLevel(log.TraceLevel)
-	default:
-		log.SetLevel(log.InfoLevel)
+	if err := setupLogging(os.Stderr, logLevel, logFormat); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
 	}
 
-	log.WithField("version", BuildVersion).Info("Starting Cec2Mqtt")
+	slog.Info("Starting Cec2Mqtt", "version", BuildVersion)
 
 	dataDir = strings.TrimRight(dataDir, "/") + "/"
 
@@ -83,9 +73,7 @@ func main() {
 	config, err := ParseConfig(dataDir)
 
 	if nil != err {
-		log.WithFields(log.Fields{
-			"error": err,
-		}).Fatal("Error reading configuration")
+		logFatal("Error reading configuration", "error", err)
 	}
 
 	container.Register("config", config)
@@ -96,19 +84,17 @@ func main() {
 	mqtt, err := ConnectMqtt(config)
 
 	if nil != err {
-		log.WithFields(log.Fields{
-			"config": config.Mqtt,
-			"error":  err,
-		}).Fatal("Failed to connect to MQTT broker")
+		logFatal("Failed to connect to MQTT broker",
+			"config", config.Mqtt,
+			"error", err,
+		)
 	}
 
 	container.Register("mqtt", mqtt)
 
-	cec, err := InitialiseCec(devices, "")
+	cec, err := InitialiseCec(devices, config.Cec.Adapter)
 	if nil != err {
-		log.WithFields(log.Fields{
-			"error": err,
-		}).Fatal("Failed to setup CEC connection")
+		logFatal("Failed to setup CEC connection", "error", err)
 	}
 
 	cec.LibCecLoggingEnabled = logCecMessages
@@ -118,9 +104,7 @@ func main() {
 	runInitializers(container)
 
 	if err := cec.Start(); err != nil {
-		log.WithFields(log.Fields{
-			"error": err,
-		}).Fatal("Failed to open CEC connection")
+		logFatal("Failed to open CEC connection", "error", err)
 	}
 
 	signals := make(chan os.Signal, 1)
@@ -133,9 +117,8 @@ func main() {
 		done <- true
 	}()
 
-	log.Info("Cec2Mqtt started")
+	slog.Info("Cec2Mqtt started")
 	<-done
-	log.Info("Exiting")
-	config.Save(dataDir)
-	devices.Save(dataDir)
+	slog.Info("Exiting")
+	devices.Save()
 }
