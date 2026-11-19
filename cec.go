@@ -49,6 +49,10 @@ func InitialiseCec(devices *DeviceRegistry, path string) (*Cec, error) {
 		"adapters": adapters,
 	}).Debug("Adapters found")
 
+	if len(adapters) == 0 {
+		return nil, errors.New("no CEC adapter found")
+	}
+
 	if len(path) == 0 {
 		adapter = adapters[0]
 
@@ -58,9 +62,11 @@ func InitialiseCec(devices *DeviceRegistry, path string) (*Cec, error) {
 
 	} else {
 		var found bool
-		for _, adapter = range adapters {
-			if adapter.Path == path {
+		for _, candidate := range adapters {
+			if candidate.Path == path {
+				adapter = candidate
 				found = true
+				break
 			}
 		}
 
@@ -140,7 +146,14 @@ func (cec *Cec) handleLogMessage(logMessage *gocec.LogMessage) {
 		return
 	}
 
-	message, _ := gocec.ParseMessage(logMessage.Message[3:])
+	message, err := gocec.ParseMessage(logMessage.Message[3:])
+	if err != nil || len(message) == 0 {
+		log.WithFields(log.Fields{
+			"raw_message": logMessage.Message[3:],
+			"error":       err,
+		}).Debug("Ignoring CEC message which could not be parsed")
+		return
+	}
 
 	device := cec.GetDevice(message.Source())
 

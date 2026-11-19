@@ -2,23 +2,39 @@ package main
 
 import (
 	"fmt"
+	"sync"
+	"time"
+
 	"github.com/eclipse/paho.mqtt.golang"
 	log "github.com/sirupsen/logrus"
-	"strings"
 )
 
 type MqttConnectedHandler func()
 
+type MessageHandler func(payload []byte)
+
+type subscription struct {
+	qos      byte
+	callback mqtt.MessageHandler
+}
+
 type Mqtt struct {
 	client mqtt.Client
 	config *MqttConfig
-	connectedHandlers []MqttConnectedHandler
-}
 
-type MessageHandler func(payload []byte)
+	mux               sync.Mutex
+	connectedHandlers []MqttConnectedHandler
+	subscriptions     map[string]subscription
+}
 
 func ConnectMqtt(config *Config) (*Mqtt, error) {
 	mqttConfig := config.Mqtt
+
+	inst := &Mqtt{
+		config:        &mqttConfig,
+		subscriptions: make(map[string]subscription),
+	}
+
 	options := mqtt.NewClientOptions()
 
 	options.AddBroker(mqttConfig.Host)
@@ -37,42 +53,64 @@ func ConnectMqtt(config *Config) (*Mqtt, error) {
 		}
 	}
 
-	var client mqtt.Client
-	var inst *Mqtt
+	// Keep retrying when the broker isn't reachable (yet), both on startup and after losing the connection.
+	options.SetAutoReconnect(true)
+	options.SetConnectRetry(true)
+	options.SetConnectRetryInterval(5 * time.Second)
 
-	options.SetOnConnectHandler(func(client mqtt.Client) {
-		log.Info("Connected to MQTT")
-		if mqttConfig.StateTopic != "" && mqttConfig.BirthMessage != "" {
-			client.Publish(mqttConfig.StateTopic, 0, true, mqttConfig.BirthMessage)
-		}
-
-		for _, handler := range inst.connectedHandlers {
-			handler()
-		}
+	options.SetConnectionLostHandler(func(_ mqtt.Client, err error) {
+		log.WithFields(log.Fields{
+			"error": err,
+		}).Warn("Lost connection to MQTT")
 	})
 
-	client = mqtt.NewClient(options)
+	options.SetOnConnectHandler(inst.onConnect)
 
-	connToken := client.Connect()
+	inst.client = mqtt.NewClient(options)
 
-	connToken.Wait()
+	log.WithFields(log.Fields{
+		"host": mqttConfig.Host,
+	}).Info("Connecting to MQTT")
 
-	inst = &Mqtt{
-		client: client,
-		config: &mqttConfig,
+	token := inst.client.Connect()
+	token.Wait()
+	if err := token.Error(); err != nil {
+		return nil, err
 	}
 
 	return inst, nil
 }
 
-func (mqtt *Mqtt) BuildTopic(device *Device, suffix string) string {
-	topic := strings.Builder{}
-	fmt.Fprintf(&topic, "%s/%s/%s", mqtt.config.BaseTopic, device.Config.MqttTopic, suffix)
-	return topic.String()
+func (m *Mqtt) onConnect(client mqtt.Client) {
+	log.Info("Connected to MQTT")
+	if m.config.StateTopic != "" && m.config.BirthMessage != "" {
+		client.Publish(m.config.StateTopic, 0, true, m.config.BirthMessage)
+	}
+
+	m.mux.Lock()
+	// The session is clean, so subscriptions have to be restored after every (re)connect.
+	subscriptions := make(map[string]subscription, len(m.subscriptions))
+	for topic, sub := range m.subscriptions {
+		subscriptions[topic] = sub
+	}
+	handlers := append([]MqttConnectedHandler(nil), m.connectedHandlers...)
+	m.mux.Unlock()
+
+	for topic, sub := range subscriptions {
+		client.Subscribe(topic, sub.qos, sub.callback)
+	}
+
+	for _, handler := range handlers {
+		handler()
+	}
 }
 
-func (mqtt *Mqtt) Publish(topic string, qos byte, retained bool, payload interface{}) {
-	mqtt.client.Publish(topic, qos, retained, payload)
+func (m *Mqtt) BuildTopic(device *Device, suffix string) string {
+	return fmt.Sprintf("%s/%s/%s", m.config.BaseTopic, device.Config.MqttTopic, suffix)
+}
+
+func (m *Mqtt) Publish(topic string, qos byte, retained bool, payload interface{}) {
+	m.client.Publish(topic, qos, retained, payload)
 	log.WithFields(log.Fields{
 		"topic":    topic,
 		"qos":      qos,
@@ -82,13 +120,19 @@ func (mqtt *Mqtt) Publish(topic string, qos byte, retained bool, payload interfa
 }
 
 func (m *Mqtt) Subscribe(topic string, qos byte, callback MessageHandler) {
-	m.client.Subscribe(topic, qos, func(_ mqtt.Client, message mqtt.Message) {
+	handler := func(_ mqtt.Client, message mqtt.Message) {
 		log.WithFields(log.Fields{
 			"topic":   message.Topic(),
-			"payload": message.Payload(),
+			"payload": string(message.Payload()),
 		}).Trace("Handling incoming MQTT message")
 		callback(message.Payload())
-	})
+	}
+
+	m.mux.Lock()
+	m.subscriptions[topic] = subscription{qos: qos, callback: handler}
+	m.mux.Unlock()
+
+	m.client.Subscribe(topic, qos, handler)
 	log.WithFields(log.Fields{
 		"topic": topic,
 		"qos":   qos,
@@ -96,5 +140,7 @@ func (m *Mqtt) Subscribe(topic string, qos byte, callback MessageHandler) {
 }
 
 func (m *Mqtt) RegisterConnectedHandler(handler MqttConnectedHandler) {
+	m.mux.Lock()
+	defer m.mux.Unlock()
 	m.connectedHandlers = append(m.connectedHandlers, handler)
 }

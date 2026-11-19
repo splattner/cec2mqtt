@@ -19,7 +19,7 @@ type Monitor struct {
 
 func CreateMonitor(starter Starter, runner Runner, longInterval time.Duration, shortInterval time.Duration, shortDuration time.Duration) *Monitor {
 	monitor := &Monitor{
-		reset:         make(chan int),
+		reset:         make(chan int, 1),
 		longInterval:  longInterval,
 		shortInterval: shortInterval,
 		shortDuration: shortDuration,
@@ -32,8 +32,13 @@ func CreateMonitor(starter Starter, runner Runner, longInterval time.Duration, s
 	return monitor
 }
 
+// Reset restarts the monitor with the short interval. It never blocks: when a
+// reset is already pending, the new request is merged into it.
 func (monitor *Monitor) Reset() {
-	monitor.reset <- 0
+	select {
+	case monitor.reset <- 0:
+	default:
+	}
 }
 
 func (monitor *Monitor) run() {

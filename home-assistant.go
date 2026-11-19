@@ -35,7 +35,7 @@ func InitHomeAssistantBridge(container *Container) {
 		birthHandlers:   make([]HomeAssistantBirthHandler, 0),
 	}
 
-	mqtt.Subscribe(config.HomeAssistant.BirthTopic, 0, func (payload []byte) {
+	mqtt.Subscribe(config.HomeAssistant.BirthTopic, 0, func(payload []byte) {
 		log.WithFields(log.Fields{
 			"payload": string(payload),
 		}).Debug("Received message on Home Assistant birth topic")
@@ -109,16 +109,33 @@ func (bridge *HomeAssistantBridge) RegisterBinarySensor(device *Device, property
 		"device.id": device.Config.Id,
 		"property":  property,
 		"config":    string(encoded),
-	}).Info("Registering binary switch in Home Assistant")
+	}).Info("Registering binary sensor in Home Assistant")
 
 	bridge.mqtt.Publish(topic.String(), 0, true, encoded)
 }
 
+// entityNames holds the Home Assistant entity names per property. Home Assistant
+// prefixes these with the device name, so they must not contain it themselves.
+var entityNames = map[string]string{
+	"power":            "Power",
+	"is_active_source": "Active source",
+}
+
 func (bridge *HomeAssistantBridge) createConfig(device *Device, property string) map[string]interface{} {
+	name, ok := entityNames[property]
+	if !ok {
+		name = property
+	}
+
 	config := map[string]interface{}{
-		"state_topic":           bridge.mqtt.BuildTopic(device, property),
-		"name":                  device.CecDevice.OSD + "_" + property,
-		"unique_id":             device.Id + "_" + property + "_" + bridge.config.Mqtt.BaseTopic,
+		"state_topic": bridge.mqtt.BuildTopic(device, property),
+		"name":        name,
+		"unique_id":   device.Id + "_" + property + "_" + bridge.config.Mqtt.BaseTopic,
+		"origin": map[string]interface{}{
+			"name":        "cec2mqtt",
+			"sw_version":  BuildVersion,
+			"support_url": "https://github.com/splattner/cec2mqtt",
+		},
 	}
 
 	if bridge.config.Mqtt.StateTopic != "" {

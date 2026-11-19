@@ -1,16 +1,22 @@
 package main
 
 import (
+	"sync"
+	"time"
+
 	"github.com/RobertMe/gocec"
 	log "github.com/sirupsen/logrus"
-	"time"
 )
 
 func init() {
-	RegisterInitializer(0, InitAcitveSourceBridge)
+	RegisterInitializer(0, InitActiveSourceBridge)
 }
 
 type ActiveSourceBridge struct {
+	// mux guards activeSource and allowedSources, which are accessed from both
+	// libcec callbacks and the monitor goroutine.
+	mux sync.Mutex
+
 	cec            *Cec
 	mqtt           *Mqtt
 	activeSource   *Device
@@ -20,7 +26,7 @@ type ActiveSourceBridge struct {
 	haBridge       *HomeAssistantBridge
 }
 
-func InitAcitveSourceBridge(container *Container) {
+func InitActiveSourceBridge(container *Container) {
 	cec := container.Get("cec").(*Cec)
 	mqtt := container.Get("mqtt").(*Mqtt)
 	devices := container.Get("devices").(*DeviceRegistry)
@@ -42,6 +48,8 @@ func InitAcitveSourceBridge(container *Container) {
 	)
 
 	devices.RegisterDeviceAddedHandler(func(device *Device) {
+		bridge.mux.Lock()
+		defer bridge.mux.Unlock()
 		bridge.allowedSources[device.LogicalAddress] = true
 	})
 
@@ -75,7 +83,15 @@ func InitAcitveSourceBridge(container *Container) {
 
 		defer bridge.monitor.Reset()
 
-		powerStatus := gocec.PowerStatus(message.Parameters()[0])
+		parameters := message.Parameters()
+		if len(parameters) < 1 {
+			return
+		}
+
+		powerStatus := gocec.PowerStatus(parameters[0])
+
+		bridge.mux.Lock()
+		defer bridge.mux.Unlock()
 		bridge.allowedSources[message.Source()] = powerStatus != gocec.PowerStatusStandBy
 
 		if bridge.activeSource == nil || message.Source() != bridge.activeSource.LogicalAddress {
@@ -83,7 +99,7 @@ func InitAcitveSourceBridge(container *Container) {
 		}
 
 		if powerStatus == gocec.PowerStatusStandBy {
-			bridge.updateActiveSource(nil)
+			bridge.updateActiveSourceLocked(nil)
 		}
 	}, gocec.OpcodeReportPowerStatus)
 
@@ -100,6 +116,13 @@ func InitAcitveSourceBridge(container *Container) {
 }
 
 func (bridge *ActiveSourceBridge) updateActiveSource(newSource *Device) {
+	bridge.mux.Lock()
+	defer bridge.mux.Unlock()
+	bridge.updateActiveSourceLocked(newSource)
+}
+
+// updateActiveSourceLocked must be called while holding bridge.mux.
+func (bridge *ActiveSourceBridge) updateActiveSourceLocked(newSource *Device) {
 	if bridge.activeSource != nil && newSource == bridge.activeSource {
 		return
 	}
@@ -177,14 +200,18 @@ func (bridge *ActiveSourceBridge) checkActiveSource() {
 
 func (bridge *ActiveSourceBridge) resendAll() {
 	log.Debug("Resending all active source states")
+	bridge.mux.Lock()
+	activeSource := bridge.activeSource
+	bridge.mux.Unlock()
+
 	for _, device := range bridge.devices.List() {
 		if bridge.haBridge != nil {
 			bridge.haBridge.RegisterBinarySensor(device, "is_active_source")
 		}
 
 		value := "off"
-		if device.Id == bridge.activeSource.Id {
-				value = "on"
+		if activeSource != nil && device.Id == activeSource.Id {
+			value = "on"
 		}
 
 		bridge.mqtt.Publish(bridge.mqtt.BuildTopic(device, "is_active_source"), 0, false, value)
