@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"strings"
 )
 
 func init() {
@@ -15,7 +14,7 @@ type HomeAssistantBirthHandler func()
 
 type HomeAssistantBridge struct {
 	discoveryPrefix string
-	mqtt            *Mqtt
+	mqtt            mqttClient
 	config          *Config
 	birthHandlers   []HomeAssistantBirthHandler
 }
@@ -54,62 +53,75 @@ func (bridge *HomeAssistantBridge) RegisterBirthHandler(handler HomeAssistantBir
 }
 
 func (bridge *HomeAssistantBridge) RegisterSwitch(device *Device, property string) {
-	topic := strings.Builder{}
-	fmt.Fprintf(&topic, "%s/switch/%s/%s/config", bridge.discoveryPrefix, device.Id, property)
-
 	config := bridge.createConfig(device, property)
 	config["command_topic"] = bridge.mqtt.BuildTopic(device, property+"/set")
 	config["payload_on"] = "on"
 	config["payload_off"] = "off"
 
-	encoded, err := json.Marshal(config)
-	if err != nil {
-		slog.Error("Failed to convert switch configuration to JSON",
-			"device.id", device.Config.Id,
-			"property", property,
-			"config", config,
-			"error", err,
-		)
-
-		return
-	}
-
-	slog.Info("Registering switch in Home Assistant",
-		"device.id", device.Config.Id,
-		"property", property,
-		"config", string(encoded),
-	)
-
-	bridge.mqtt.Publish(topic.String(), 0, true, encoded)
+	bridge.publishDiscovery("switch", device, property, config)
 }
 
 func (bridge *HomeAssistantBridge) RegisterBinarySensor(device *Device, property string) {
-	topic := strings.Builder{}
-	fmt.Fprintf(&topic, "%s/binary_sensor/%s/%s/config", bridge.discoveryPrefix, device.Id, property)
-
 	config := bridge.createConfig(device, property)
 	config["payload_on"] = "on"
 	config["payload_off"] = "off"
 
+	bridge.publishDiscovery("binary_sensor", device, property, config)
+}
+
+// RegisterSensor registers a numeric or text sensor reading the property's state topic.
+func (bridge *HomeAssistantBridge) RegisterSensor(device *Device, property string, unit string) {
+	config := bridge.createConfig(device, property)
+	if unit != "" {
+		config["unit_of_measurement"] = unit
+	}
+
+	bridge.publishDiscovery("sensor", device, property, config)
+}
+
+// RegisterButton registers a button which publishes payload to the command topic
+// of commandProperty when pressed. objectId identifies the button itself.
+func (bridge *HomeAssistantBridge) RegisterButton(device *Device, objectId string, commandProperty string, payload string) {
+	config := bridge.createConfig(device, objectId)
+	delete(config, "state_topic")
+	config["command_topic"] = bridge.mqtt.BuildTopic(device, commandProperty+"/set")
+	config["payload_press"] = payload
+
+	bridge.publishDiscovery("button", device, objectId, config)
+}
+
+// RegisterEvent registers an event entity. The state topic receives JSON
+// messages like {"event_type": "<one of eventTypes>"}.
+func (bridge *HomeAssistantBridge) RegisterEvent(device *Device, property string, eventTypes []string) {
+	config := bridge.createConfig(device, property)
+	config["event_types"] = eventTypes
+
+	bridge.publishDiscovery("event", device, property, config)
+}
+
+func (bridge *HomeAssistantBridge) publishDiscovery(component string, device *Device, objectId string, config map[string]interface{}) {
+	topic := fmt.Sprintf("%s/%s/%s/%s/config", bridge.discoveryPrefix, component, device.Id, objectId)
+
 	encoded, err := json.Marshal(config)
 	if err != nil {
-		slog.Error("Failed to convert binary sensor configuration to JSON",
+		slog.Error("Failed to convert Home Assistant configuration to JSON",
+			"component", component,
 			"device.id", device.Config.Id,
-			"property", property,
-			"config", config,
+			"object_id", objectId,
 			"error", err,
 		)
 
 		return
 	}
 
-	slog.Info("Registering binary sensor in Home Assistant",
+	slog.Info("Registering entity in Home Assistant",
+		"component", component,
 		"device.id", device.Config.Id,
-		"property", property,
+		"object_id", objectId,
 		"config", string(encoded),
 	)
 
-	bridge.mqtt.Publish(topic.String(), 0, true, encoded)
+	bridge.mqtt.Publish(topic, 0, true, encoded)
 }
 
 // entityNames holds the Home Assistant entity names per property. Home Assistant
@@ -117,6 +129,12 @@ func (bridge *HomeAssistantBridge) RegisterBinarySensor(device *Device, property
 var entityNames = map[string]string{
 	"power":            "Power",
 	"is_active_source": "Active source",
+	"select_source":    "Select source",
+	"volume":           "Volume",
+	"volume_up":        "Volume up",
+	"volume_down":      "Volume down",
+	"mute":             "Mute",
+	"remote_key":       "Remote key",
 }
 
 func (bridge *HomeAssistantBridge) createConfig(device *Device, property string) map[string]interface{} {

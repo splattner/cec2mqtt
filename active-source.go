@@ -49,8 +49,22 @@ func InitActiveSourceBridge(container *Container) {
 
 	devices.RegisterDeviceAddedHandler(func(device *Device) {
 		bridge.mux.Lock()
-		defer bridge.mux.Unlock()
 		bridge.allowedSources[device.LogicalAddress] = true
+		bridge.mux.Unlock()
+
+		mqtt.Subscribe(mqtt.BuildTopic(device, "is_active_source/set"), 0, func(payload []byte) {
+			if string(payload) != "on" {
+				slog.Debug("Ignoring active source request, only \"on\" is supported",
+					"device.id", device.Id,
+					"payload", string(payload),
+				)
+				return
+			}
+
+			slog.Info("Selecting device as active source as requested on MQTT", "device.id", device.Id)
+			selectSource(cec, device)
+			bridge.monitor.Reset()
+		})
 	})
 
 	if haBridge, ok := container.Get("home-assistant").(*HomeAssistantBridge); ok {
@@ -58,6 +72,7 @@ func InitActiveSourceBridge(container *Container) {
 		bridge.haBridge = haBridge
 		devices.RegisterDeviceAddedHandler(func(device *Device) {
 			haBridge.RegisterBinarySensor(device, "is_active_source")
+			haBridge.RegisterButton(device, "select_source", "is_active_source", "on")
 		})
 		haBridge.RegisterBirthHandler(bridge.resendAll)
 	}
@@ -203,6 +218,7 @@ func (bridge *ActiveSourceBridge) resendAll() {
 	for _, device := range bridge.devices.List() {
 		if bridge.haBridge != nil {
 			bridge.haBridge.RegisterBinarySensor(device, "is_active_source")
+			bridge.haBridge.RegisterButton(device, "select_source", "is_active_source", "on")
 		}
 
 		value := "off"
@@ -213,4 +229,16 @@ func (bridge *ActiveSourceBridge) resendAll() {
 		bridge.mqtt.Publish(bridge.mqtt.BuildTopic(device, "is_active_source"), 0, false, value)
 
 	}
+}
+
+// selectSource makes the device the active source using One Touch Play: the TV
+// is woken up (Image View On) and asked to switch to the physical address of
+// the device (Set Stream Path). The device itself then announces it is the
+// active source.
+func selectSource(cec cecSender, device *Device) {
+	source := cec.AdapterAddress()
+	address := device.CecDevice.physicalAddress
+
+	cec.Transmit(gocec.NewMessage(source, gocec.DeviceTV, gocec.OpcodeImageViewOn, []byte{}))
+	cec.Transmit(gocec.NewMessage(source, gocec.DeviceBroadcast, gocec.OpcodeSetStreamPath, []byte{address[0], address[1]}))
 }

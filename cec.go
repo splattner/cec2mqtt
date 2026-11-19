@@ -14,6 +14,8 @@ type MessageReceivedHandler func(message gocec.Message)
 type Cec struct {
 	connection *gocec.Connection
 	adapter    gocec.Adapter
+	// adapterAddress is the logical address of the CEC adapter, known after Start.
+	adapterAddress gocec.LogicalAddress
 
 	devices                 *DeviceRegistry
 	messageReceivedHandlers map[gocec.Opcode][]MessageReceivedHandler
@@ -36,6 +38,7 @@ func InitialiseCec(devices *DeviceRegistry, path string) (*Cec, error) {
 	cec := &Cec{
 		devices:                 devices,
 		messageReceivedHandlers: make(map[gocec.Opcode][]MessageReceivedHandler),
+		adapterAddress:          gocec.DeviceRecodingDevice1,
 	}
 	config.SetLogCallback(cec.handleLogMessage)
 
@@ -105,7 +108,13 @@ func (cec *Cec) Start() error {
 
 	slog.Info("Opened CEC connection", "adapter", cec.adapter)
 
-	adapterAddress, _ := cec.connection.GetAdapterAddress()
+	adapterAddress, err := cec.connection.GetAdapterAddress()
+	if err != nil {
+		slog.Warn("Could not determine the logical address of the CEC adapter", "error", err)
+	}
+	cec.adapterAddress = adapterAddress
+	slog.Info("CEC adapter registered", "logical_address", adapterAddress)
+
 	addresses := cec.connection.ActiveDevices()
 
 	for _, address := range addresses {
@@ -195,4 +204,9 @@ func (cec *Cec) Transmit(message gocec.Message) {
 		"message.raw", []byte(message),
 	)
 	cec.connection.Transmit(message)
+}
+
+// AdapterAddress returns the logical address of the CEC adapter.
+func (cec *Cec) AdapterAddress() gocec.LogicalAddress {
+	return cec.adapterAddress
 }
