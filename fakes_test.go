@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"sync"
 	"testing"
 
@@ -139,9 +140,33 @@ func addTestDevice(t *testing.T, registry *DeviceRegistry, address gocec.Logical
 }
 
 func newTestHomeAssistantBridge(mqtt mqttClient) *HomeAssistantBridge {
-	return &HomeAssistantBridge{
-		discoveryPrefix: "homeassistant",
-		mqtt:            mqtt,
-		config:          &Config{Mqtt: MqttConfig{BaseTopic: "cec2mqtt"}},
+	config := &Config{
+		Mqtt:          MqttConfig{BaseTopic: "cec2mqtt"},
+		HomeAssistant: HomeAssistantConfig{Enable: true, DiscoveryPrefix: "homeassistant"},
 	}
+	bridge := newHomeAssistantBridge(config, mqtt)
+	bridge.publishDelay = 0 // publish synchronously
+	return bridge
+}
+
+// discovery returns the latest device discovery message of the device and its
+// components, or nil when none was published.
+func (m *fakeMqtt) discovery(t *testing.T, deviceId string) (map[string]any, map[string]map[string]any) {
+	t.Helper()
+	messages := m.messages("homeassistant/device/" + deviceId + "/config")
+	if len(messages) == 0 {
+		return nil, nil
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(messages[len(messages)-1]), &payload); err != nil {
+		t.Fatal(err)
+	}
+
+	components := make(map[string]map[string]any)
+	raw, _ := payload["components"].(map[string]any)
+	for id, config := range raw {
+		components[id], _ = config.(map[string]any)
+	}
+	return payload, components
 }
