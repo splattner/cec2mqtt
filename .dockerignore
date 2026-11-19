@@ -1,2 +1,5 @@
 .git
+.github
 Dockerfile
+*.md
+cec2mqtt

@@ -1,4 +1,4 @@
-# Cec2Mqt
+# Cec2Mqtt
 cec2mqtt enables you to read the status and control your CEC enabled devices using MQTT.
 Currently its supported features are:
 * Reading the power status (on/off) of devices
@@ -14,23 +14,21 @@ Testing has been done both on a generic x64 computer using the Pulse-Eight HDMI-
 
 ## Installation
 The easiest way to run cec2mqtt is by using the Docker images. As Cec2Mqtt is still under development there are only development
-images available, called ``edge``. Use ``ghcr.io/robertme/cec2mqtt:edge`` to run the latest development version. This image works on all supported platforms.
+images available, called ``edge``. Use ``ghcr.io/splattner/cec2mqtt:edge`` to run the latest development version. This image works on all supported platforms.
 
 Running cec2mqtt can be done using:
 ```console
-docker run -v /path/to/data/directory:/data/cec2mqtt --device=/dev/cec0 ghcr.io/robertme/cec2mqtt:edge
+docker run -v /path/to/data/directory:/data/cec2mqtt --device=/dev/cec0 ghcr.io/splattner/cec2mqtt:edge
 ```
 ``/dev/cec0`` can be replaced with another CEC device if the system exposes more. Or use ``/dev/ttyACM0`` or equivalent if your kernel doesn't expose
 any CEC devices and you're using the Pulse-Eight HDMI-CEC adapter.
 
 When using docker-compose the following ``docker-compose.yaml`` can be used as a starting point:
 ```yaml
-version: '3'
-
 services:
   cec2mqtt:
     container_name: cec2mqtt
-    image: ghcr.io/robertme/cec2mqtt:edge
+    image: ghcr.io/splattner/cec2mqtt:edge
     volumes:
       - ./data:/data/cec2mqtt
     devices:
@@ -77,7 +75,12 @@ mqtt:
 home_assistant:
     enable: true
     discovery_prefix: homeassistant
+    birth_topic: homeassistant/status
+    birth_payload: online
 ```
+
+``birth_topic`` and ``birth_payload`` are used to detect Home Assistant restarts, after which all entities and states are republished.
+They default to ``<discovery_prefix>/status`` and ``online``, matching Home Assistant's defaults.
 
 ### Device configuration
 Devices which have been found in the CEC network can be configured as well. For this you **must** first stop cec2mqtt. When Cec2Mqtt is stopped you
