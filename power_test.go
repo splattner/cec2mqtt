@@ -37,3 +37,27 @@ func TestPowerStatusRequest(t *testing.T) {
 		{0x14, byte(gocec.OpcodeGiveDevicePowerStatus)},
 	})
 }
+
+func TestActiveSourceNotCheckedWhileTVInStandby(t *testing.T) {
+	cec := &fakeCec{address: gocec.DeviceRecodingDevice1}
+	mqtt := newFakeMqtt()
+	registry := newTestRegistry(t)
+	bridge := newActiveSourceBridge(cec, mqtt, registry)
+	registry.RegisterDeviceAddedHandler(bridge.deviceAdded)
+
+	tv := addTestDevice(t, registry, gocec.DeviceTV, gocec.PhysicalAddress{0, 0}, "TV")
+	player := addTestDevice(t, registry, gocec.DevicePlaybackDevice1, gocec.PhysicalAddress{0x10, 0}, "Player")
+	bridge.updateActiveSource(player)
+
+	bridge.mux.Lock()
+	bridge.allowedSources[tv.LogicalAddress] = false
+	bridge.mux.Unlock()
+
+	// The test bridge has no libcec connection, so this would panic if the
+	// active source was requested.
+	bridge.checkActiveSource()
+
+	if got := mqtt.messages("cec2mqtt/Player/is_active_source"); len(got) != 2 || got[1] != "off" {
+		t.Errorf("expected active source to be cleared, got %q", got)
+	}
+}
