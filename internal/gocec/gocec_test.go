@@ -124,29 +124,23 @@ func TestNewCommand(t *testing.T) {
 	}
 }
 
-func TestConnectionClose(t *testing.T) {
-	var logs []string
-	var mux sync.Mutex
-
+// TestCloseWithoutAdapter checks that closing a connection which never opened
+// an adapter doesn't tear down libcec, which then crashed the process at exit
+// (a libcec thread kept running on freed memory, mostly seen with -race).
+// Closing an opened adapter needs hardware, so isn't tested here.
+func TestCloseWithoutAdapter(t *testing.T) {
 	config := NewConfiguration("gocec-test", false)
-	config.SetLogCallback(func(message *LogMessage) {
-		mux.Lock()
-		defer mux.Unlock()
-		logs = append(logs, message.Message)
-	})
+	config.SetLogCallback(func(*LogMessage) {})
 
 	connection, err := NewConnection(config)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// No adapter needed: libcec is initialised without opening one.
 	connection.Close()
 	connection.Close() // safe to call again
 
-	mux.Lock()
-	defer mux.Unlock()
-	if lookupCallbacks(config.callbacksIndex) != nil {
-		t.Error("callbacks not released")
+	if connection.connection == nil {
+		t.Error("libcec was destroyed without an opened adapter")
 	}
 }
