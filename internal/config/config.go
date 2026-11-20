@@ -46,7 +46,7 @@ type Config struct {
 func Load(configPath string) (*Config, error) {
 	logContext := slog.With("config_file", configPath+"config.yaml")
 	logContext.Info("Reading configuration")
-	data, err := os.ReadFile(configPath + "config.yaml")
+	data, err := os.ReadFile(configPath + "config.yaml") //nolint:gosec // the data directory is chosen with -data-dir
 	if nil != err {
 		logContext.Error("Configuration could not be read", "error", err)
 		return nil, err

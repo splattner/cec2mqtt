@@ -266,7 +266,12 @@ Building and testing needs the libcec headers (``libcec-dev`` on Debian, Ubuntu 
 ```console
 go build ./cmd/cec2mqtt
 go test -race ./...
+golangci-lint run      # linters and formatting, see .golangci.yml
+govulncheck ./...      # known vulnerabilities in the code that's called
 ```
+
+Pull requests need a [Conventional Commits](https://www.conventionalcommits.org/) title (``feat: ...``, ``fix: ...``), as it
+becomes the commit message from which the changelog and the next version are made.
 
 ## Credits
 cec2mqtt was originally created by [Robert Meijers](https://github.com/RobertMe) at

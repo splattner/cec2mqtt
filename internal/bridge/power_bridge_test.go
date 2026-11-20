@@ -48,7 +48,7 @@ func TestPowerBridgePublishesStatesInOrder(t *testing.T) {
 		// Quick changes, like a TV going into standby and being woken again.
 		// Earlier versions published every state from its own goroutine, so
 		// these could arrive on MQTT in any order.
-		for i := 0; i < 50; i++ {
+		for range 50 {
 			bridge.handleReportPowerStatus(reportPowerStatus(gocec.DeviceTV, gocec.PowerStatusStandBy))
 			bridge.handleReportPowerStatus(reportPowerStatus(gocec.DeviceTV, gocec.PowerStatusOn))
 			want = append(want, "off", "on")

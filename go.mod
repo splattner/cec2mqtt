@@ -2,6 +2,10 @@ module github.com/splattner/cec2mqtt
 
 go 1.26.0
 
+// The Go version CI tests with, the same release line the Docker image is
+// built with (GO_VERSION in the Dockerfile). Updated by Renovate.
+toolchain go1.27.4
+
 require (
 	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/google/uuid v1.6.0

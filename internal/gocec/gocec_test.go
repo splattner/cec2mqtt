@@ -27,7 +27,7 @@ func TestStringConcurrent(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for i := 0; i < 2000; i++ {
+			for range 2000 {
 				if got := stringer.String(); got != want {
 					t.Errorf("String() = %q, want %q", got, want)
 					return

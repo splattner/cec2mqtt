@@ -1,0 +1,45 @@
+name: Security Scan
+
+# Vulnerabilities are found in dependencies and base images without any change
+# here, so they're checked every week too, not only on pull requests.
+on:
+  schedule:
+    - cron: "17 5 * * 1" # Mondays
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  govulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: ./.github/actions/setup-go
+
+      - name: Run govulncheck
+        env:
+          # renovate: datasource=go depName=golang.org/x/vuln
+          GOVULNCHECK_VERSION: v1.9.0
+        run: go run "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}" ./...
+
+  image:
+    name: Scan edge image
+    runs-on: ubuntu-latest
+    steps:
+      # Fails for high and critical vulnerabilities which have a fix, e.g. in
+      # the Alpine packages, which a rebuild or base image update would pull in.
+      - name: Scan image (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ghcr.io/${{ github.repository_owner }}/cec2mqtt:edge
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
