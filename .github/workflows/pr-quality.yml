@@ -1,0 +1,81 @@
+name: PR Quality
+
+on:
+  pull_request:
+  # Also verify master directly. Release Please updates its release PR using
+  # GITHUB_TOKEN, and GitHub does not create workflow runs for events raised
+  # by that token, so the release PR never picks up a fresh pull_request run.
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  go-build-test:
+    name: Go build, vet and test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install libcec
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libcec-dev libp8-platform-dev libudev-dev
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Verify go.mod is tidy
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -race -count=1 ./...
+
+  docker-build:
+    name: Docker build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      # All platforms, as the cgo cross compile is where things break.
+      - name: Build image (no push)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm/v7,linux/arm64/v8
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  renovate-config:
+    name: Validate Renovate config
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # A malformed config does not fail visibly — Renovate logs it and
+      # carries on doing nothing, which looks identical to "no updates".
+      - name: Validate
+        run: npx --yes -p renovate renovate-config-validator renovate.json
