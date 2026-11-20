@@ -6,9 +6,8 @@ import (
 	"log/slog"
 	"strings"
 	"sync/atomic"
-	"time"
 
-	"github.com/RobertMe/gocec"
+	"github.com/splattner/cec2mqtt/internal/gocec"
 )
 
 type MessageReceivedHandler func(message gocec.Message)
@@ -51,13 +50,27 @@ func InitialiseCec(devices *DeviceRegistry, path string) (*Cec, error) {
 		return nil, err
 	}
 
+	adapter, err := selectAdapter(connection.FindAdapters(), path)
+	if err != nil {
+		connection.Close()
+		return nil, err
+	}
+
+	cec.connection = connection
+	cec.adapter = adapter
+
+	return cec, nil
+}
+
+// selectAdapter returns the adapter with the path, or the first adapter when
+// path is empty.
+func selectAdapter(adapters []gocec.Adapter, path string) (gocec.Adapter, error) {
 	var adapter gocec.Adapter
-	adapters := connection.FindAdapters()
 
 	slog.Debug("Adapters found", "adapters", adapters)
 
 	if len(adapters) == 0 {
-		return nil, errors.New("no CEC adapter found")
+		return adapter, errors.New("no CEC adapter found")
 	}
 
 	if len(path) == 0 {
@@ -80,16 +93,13 @@ func InitialiseCec(devices *DeviceRegistry, path string) (*Cec, error) {
 			for i, candidate := range adapters {
 				paths[i] = candidate.Path
 			}
-			return nil, fmt.Errorf("adapter %s has not been found, available adapters: %s", path, strings.Join(paths, ", "))
+			return adapter, fmt.Errorf("adapter %s has not been found, available adapters: %s", path, strings.Join(paths, ", "))
 		}
 
 		slog.Debug("Matched adapter", "adapter", adapter)
 	}
 
-	cec.connection = connection
-	cec.adapter = adapter
-
-	return cec, nil
+	return adapter, nil
 }
 
 func (cec *Cec) RegisterMessageHandler(handler MessageReceivedHandler, opcodes ...gocec.Opcode) {
@@ -156,8 +166,7 @@ func (cec *Cec) handleLogMessage(logMessage *gocec.LogMessage) {
 	if cec.LibCecLoggingEnabled {
 		slog.Debug("Incoming message from libcec",
 			"message", logMessage.Message,
-			// gocec converts libcec's milliseconds since start as if they were seconds since the Unix epoch.
-			"libcec_uptime", time.Duration(logMessage.Time.Unix())*time.Millisecond,
+			"libcec_uptime", logMessage.Uptime,
 			"level", logMessage.Level,
 		)
 	}
@@ -226,7 +235,21 @@ func (cec *Cec) Transmit(message gocec.Message) {
 		"message.text", message.String(),
 		"message.raw", []byte(message),
 	)
-	cec.connection.Transmit(message)
+	if err := cec.connection.Transmit(message); err != nil {
+		// Normal for devices which are off, so not a warning.
+		slog.Debug("Failed to transmit CEC message",
+			"message.text", message.String(),
+			"error", err,
+		)
+	}
+}
+
+// Close closes the CEC adapter, so it unregisters from the bus, and frees
+// libcec. Bridges must be stopped before.
+func (cec *Cec) Close() {
+	cec.started.Store(false)
+	cec.connection.Close()
+	slog.Info("Closed CEC connection")
 }
 
 // AdapterAddress returns the logical address of the CEC adapter.

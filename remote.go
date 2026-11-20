@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/RobertMe/gocec"
+	"github.com/splattner/cec2mqtt/internal/gocec"
 )
 
 // RemoteBridge sends key presses to devices (<device>/key/set) and publishes

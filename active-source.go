@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/RobertMe/gocec"
+	"github.com/splattner/cec2mqtt/internal/gocec"
 )
 
 type ActiveSourceBridge struct {

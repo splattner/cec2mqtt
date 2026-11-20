@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/RobertMe/gocec"
 	"github.com/google/uuid"
+	"github.com/splattner/cec2mqtt/internal/gocec"
 	"gopkg.in/yaml.v3"
 )
 

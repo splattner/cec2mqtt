@@ -1,0 +1,76 @@
+package gocec
+
+import (
+	"encoding/hex"
+	"fmt"
+	"strings"
+)
+
+type Message []byte
+
+func ParseMessage(message string) (Message, error) {
+	message = strings.ReplaceAll(message, ":", "")
+
+	command, err := hex.DecodeString(message)
+	if err != nil {
+		return Message{}, err
+	}
+
+	return Message(command), nil
+}
+
+func NewMessage(source LogicalAddress, destination LogicalAddress, opcode Opcode, parameters []byte) Message {
+	message := Message{
+		(byte(source) << 4) + byte(destination),
+		byte(opcode),
+	}
+	message = append(message, parameters...)
+	return message
+}
+
+// Source returns the initiator of the message, or DeviceUnknown for an empty message.
+func (message Message) Source() LogicalAddress {
+	if len(message) == 0 {
+		return DeviceUnknown
+	}
+	return LogicalAddress(message[0] >> 4)
+}
+
+// Destination returns the destination of the message, or DeviceUnknown for an empty message.
+func (message Message) Destination() LogicalAddress {
+	if len(message) == 0 {
+		return DeviceUnknown
+	}
+	return LogicalAddress(0x0F & message[0])
+}
+
+func (message Message) Opcode() Opcode {
+	if len(message) < 2 {
+		return OpcodeNone
+	}
+
+	return Opcode(message[1])
+}
+
+func (message Message) Parameters() []byte {
+	if len(message) < 3 {
+		return nil
+	}
+
+	return message[2:]
+}
+
+func (message Message) String() string {
+	if len(message) == 0 {
+		return "empty message"
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "from %s to %s, message: %s", message.Source(), message.Destination(), message.Opcode())
+
+	if len(message) > 2 {
+		fmt.Fprintf(&b, ", with parameters: %X", message.Parameters())
+	}
+
+	return b.String()
+}

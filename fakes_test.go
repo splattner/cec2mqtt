@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RobertMe/gocec"
+	"github.com/splattner/cec2mqtt/internal/gocec"
 )
 
 // waitFor polls condition until it's true, for tests running on the real clock.

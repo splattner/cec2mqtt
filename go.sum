@@ -1,5 +1,3 @@
-github.com/RobertMe/gocec v0.0.0-20211221170538-a674c1177b80 h1:ZklFNBdjRXFM43ddg0QrDd8Ls65+E7awnMAK8P7FlhQ=
-github.com/RobertMe/gocec v0.0.0-20211221170538-a674c1177b80/go.mod h1:4BtgUOCxcpV4JemjjasC7fqJ+D3tym3kPzOCtvq8j30=
 github.com/eclipse/paho.mqtt.golang v1.5.1 h1:/VSOv3oDLlpqR2Epjn1Q7b2bSTplJIeV2ISgCl2W7nE=
 github.com/eclipse/paho.mqtt.golang v1.5.1/go.mod h1:1/yJCneuyOoCOzKSsOTUc0AJfpsItBGWvYpBLimhArU=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=

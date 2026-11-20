@@ -68,6 +68,7 @@ func main() {
 	app := newApp(config, devices, mqtt, cec)
 
 	if err := cec.Start(); err != nil {
+		cec.Close()
 		logFatal("Failed to open CEC connection", "error", err)
 	}
 
@@ -88,7 +89,7 @@ func main() {
 		os.Exit(1)
 	}()
 
-	shutdown(app, mqtt, devices)
+	shutdown(app, mqtt, cec, devices)
 	slog.Info("Exited")
 }
 
@@ -97,11 +98,11 @@ func main() {
 const shutdownTimeout = 10 * time.Second
 
 // shutdown stops the bridges, publishes the will message and disconnects from
-// MQTT, and saves the devices. libcec has no way to close the connection
-// through gocec, the adapter is released when the process exits.
-func shutdown(app *App, mqtt *Mqtt, devices *DeviceRegistry) {
+// MQTT, closes the CEC adapter, and saves the devices.
+func shutdown(app *App, mqtt *Mqtt, cec *Cec, devices *DeviceRegistry) {
 	app.Close()
 	mqtt.Close()
+	cec.Close()
 
 	if err := devices.Save(); err != nil {
 		slog.Error("Failed to save devices on shutdown", "error", err)

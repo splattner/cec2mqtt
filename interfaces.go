@@ -1,6 +1,6 @@
 package main
 
-import "github.com/RobertMe/gocec"
+import "github.com/splattner/cec2mqtt/internal/gocec"
 
 // cecSender is the part of *Cec used by the bridges. It's an interface so
 // bridges can be tested without a CEC adapter.

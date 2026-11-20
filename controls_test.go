@@ -5,7 +5,7 @@ import (
 	"testing"
 	"testing/synctest"
 
-	"github.com/RobertMe/gocec"
+	"github.com/splattner/cec2mqtt/internal/gocec"
 )
 
 func newTestBridgeControls(t *testing.T) (*BridgeControls, *fakeCec, *fakeMqtt, *int) {

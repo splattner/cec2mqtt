@@ -309,7 +309,7 @@ func (bridge *HomeAssistantBridge) publish(deviceId string) {
 			"identifiers":  []string{"cec2mqtt_" + device.Id},
 			"name":         device.CecDevice.OSD,
 			"sw_version":   "Cec2Mqtt " + BuildVersion,
-			"manufacturer": vendorName(device.CecDevice.vendor),
+			"manufacturer": device.CecDevice.vendor.String(),
 		}
 		if bridgeDeviceId != "" {
 			deviceInfo["via_device"] = "cec2mqtt_" + bridgeDeviceId

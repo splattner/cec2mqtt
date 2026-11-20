@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/RobertMe/gocec"
+	"github.com/splattner/cec2mqtt/internal/gocec"
 )
 
 // diagnosticProperties are the diagnostic values published per device, in
@@ -73,7 +73,7 @@ func (bridge *DiagnosticsBridge) publish(device *Device) {
 	values := map[string]string{
 		"physical_address": device.CecDevice.physicalAddress.String(),
 		"logical_address":  logicalAddressName(device.LogicalAddress),
-		"vendor":           vendorName(device.CecDevice.vendor),
+		"vendor":           device.CecDevice.vendor.String(),
 	}
 
 	slog.Debug("Publishing diagnostics", "device.id", device.Id, "values", values)
@@ -98,8 +98,7 @@ func (bridge *DiagnosticsBridge) resendAll() {
 }
 
 // logicalAddressNames are the names of the logical addresses, as in the CEC
-// specification. gocec's LogicalAddress.String isn't safe to call from more
-// than one goroutine, see vendorName.
+// specification. (libcec's names are abbreviated, like "Playback 1".)
 var logicalAddressNames = map[gocec.LogicalAddress]string{
 	gocec.DeviceTV:              "TV",
 	gocec.DeviceRecodingDevice1: "Recording device 1",
@@ -127,15 +126,4 @@ func logicalAddressName(address gocec.LogicalAddress) string {
 		name = "Unknown"
 	}
 	return fmt.Sprintf("%s (%d)", name, address)
-}
-
-// cecStringMux guards gocec's String methods, which all write to one shared C
-// buffer.
-var cecStringMux sync.Mutex
-
-// vendorName returns the name of the vendor, like "Samsung".
-func vendorName(vendor gocec.Vendor) string {
-	cecStringMux.Lock()
-	defer cecStringMux.Unlock()
-	return vendor.String()
 }
