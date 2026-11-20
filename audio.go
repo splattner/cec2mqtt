@@ -10,10 +10,6 @@ import (
 	"github.com/RobertMe/gocec"
 )
 
-func init() {
-	RegisterInitializer(0, InitAudioBridge)
-}
-
 // audioStatus is the decoded operand of a Report Audio Status message.
 type audioStatus struct {
 	volume int // 0 - 100
@@ -59,14 +55,13 @@ func newAudioBridge(cec cecSender, mqtt mqttClient) *AudioBridge {
 	}
 }
 
-func InitAudioBridge(container *Container) {
-	cec := container.Get("cec").(*Cec)
-	mqtt := container.Get("mqtt").(*Mqtt)
-	devices := container.Get("devices").(*DeviceRegistry)
+// setupAudioBridge creates the bridge and connects it to CEC, MQTT and the
+// device registry. haBridge is nil when the Home Assistant integration is disabled.
+func setupAudioBridge(cec cecBus, mqtt mqttClient, devices *DeviceRegistry, haBridge *HomeAssistantBridge) *AudioBridge {
 
 	bridge := newAudioBridge(cec, mqtt)
 
-	if haBridge, ok := container.Get("home-assistant").(*HomeAssistantBridge); ok {
+	if haBridge != nil {
 		bridge.haBridge = haBridge
 		haBridge.RegisterBirthHandler(bridge.resendAll)
 	}
@@ -78,7 +73,7 @@ func InitAudioBridge(container *Container) {
 	}, gocec.OpcodeSetSystemAudioMode, gocec.OpcodeActiveSource, gocec.OpcodeStandby)
 	mqtt.RegisterConnectedHandler(bridge.resendAll)
 
-	container.Register("bridge.audio", bridge)
+	return bridge
 }
 
 func (bridge *AudioBridge) deviceAdded(device *Device) {

@@ -10,32 +10,6 @@ import (
 	paho "github.com/eclipse/paho.mqtt.golang"
 )
 
-type closeRecorder struct {
-	name   string
-	closed *[]string
-}
-
-func (c *closeRecorder) Close() { *c.closed = append(*c.closed, c.name) }
-
-func TestContainerClosesInReverseOrder(t *testing.T) {
-	var closed []string
-	container := NewContainer()
-	container.Register("mqtt", &closeRecorder{"mqtt", &closed})
-	container.Register("config", &Config{}) // not a closer
-	container.Register("home-assistant", &closeRecorder{"home-assistant", &closed})
-	container.Register("bridge.power", &closeRecorder{"bridge.power", &closed})
-	container.Register("bridge.removed", &closeRecorder{"bridge.removed", &closed})
-	container.Unregister("bridge.removed")
-	// Registering again replaces the service, but keeps its position.
-	container.Register("mqtt", &closeRecorder{"mqtt (replaced)", &closed})
-
-	container.Close()
-
-	if want := []string{"bridge.power", "home-assistant", "mqtt (replaced)"}; !slices.Equal(closed, want) {
-		t.Errorf("closed %q, want %q", closed, want)
-	}
-}
-
 // fakePahoClient implements the parts of paho.Client used by Mqtt.Close.
 type fakePahoClient struct {
 	paho.Client

@@ -8,10 +8,6 @@ import (
 	"github.com/RobertMe/gocec"
 )
 
-func init() {
-	RegisterInitializer(0, InitPowerBridge)
-}
-
 type PowerState struct {
 	state     string
 	published bool
@@ -58,17 +54,14 @@ func newPowerBridge(cec cecSender, mqtt mqttClient, devices *DeviceRegistry) *Po
 	}
 }
 
-func InitPowerBridge(container *Container) {
-	cec := container.Get("cec").(*Cec)
-	mqtt := container.Get("mqtt").(*Mqtt)
-	devices := container.Get("devices").(*DeviceRegistry)
+// setupPowerBridge creates the bridge and connects it to CEC, MQTT and the
+// device registry. haBridge is nil when the Home Assistant integration is disabled.
+func setupPowerBridge(cec cecBus, mqtt mqttClient, devices *DeviceRegistry, haBridge *HomeAssistantBridge) *PowerBridge {
 	bridge := newPowerBridge(cec, mqtt, devices)
-
-	container.Register("bridge.power", bridge)
 
 	devices.RegisterDeviceAddedHandler(bridge.deviceAdded)
 
-	if haBridge, ok := container.Get("home-assistant").(*HomeAssistantBridge); ok {
+	if haBridge != nil {
 		slog.Info("Enabling Home Assistant configuration for power")
 		bridge.haBridge = haBridge
 		haBridge.RegisterBirthHandler(bridge.resendAll)
@@ -85,6 +78,8 @@ func InitPowerBridge(container *Container) {
 	cec.RegisterMessageHandler(bridge.handleBusChange, gocec.OpcodeStandby, gocec.OpcodeActiveSource)
 
 	mqtt.RegisterConnectedHandler(bridge.resendAll)
+
+	return bridge
 }
 
 func (bridge *PowerBridge) deviceAdded(device *Device) {

@@ -17,6 +17,12 @@ type cecSender interface {
 	ActiveSource() gocec.LogicalAddress
 }
 
+// cecBus is a cecSender which also delivers the messages received from devices.
+type cecBus interface {
+	cecSender
+	RegisterMessageHandler(handler MessageReceivedHandler, opcodes ...gocec.Opcode)
+}
+
 // mqttClient is the part of *Mqtt used by the bridges. It's an interface so
 // bridges can be tested without an MQTT broker.
 type mqttClient interface {
@@ -27,6 +33,6 @@ type mqttClient interface {
 }
 
 var (
-	_ cecSender  = (*Cec)(nil)
+	_ cecBus     = (*Cec)(nil)
 	_ mqttClient = (*Mqtt)(nil)
 )
