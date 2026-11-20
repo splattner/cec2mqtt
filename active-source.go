@@ -186,6 +186,13 @@ func (bridge *ActiveSourceBridge) updateActiveSourceLocked(newSource *Device) {
 	bridge.activeSource = newSource
 }
 
+// Close stops checking the active source.
+func (bridge *ActiveSourceBridge) Close() {
+	if bridge.monitor != nil {
+		bridge.monitor.Stop()
+	}
+}
+
 func (bridge *ActiveSourceBridge) checkActiveSource() {
 	// Nothing can be the active source while the TV is in standby. Asking
 	// anyway makes libcec broadcast Request Active Source, which nobody answers.
