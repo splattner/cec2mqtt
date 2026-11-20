@@ -41,6 +41,7 @@ type HomeAssistantBridge struct {
 	publishDelay time.Duration
 
 	mux           sync.Mutex
+	closed        bool
 	birthHandlers []HomeAssistantBirthHandler
 	devices       map[string]*haDevice
 	// legacyTopics holds the single component discovery topics which are
@@ -228,6 +229,10 @@ func (bridge *HomeAssistantBridge) schedulePublish(deviceId string) {
 	bridge.mux.Lock()
 	defer bridge.mux.Unlock()
 
+	if bridge.closed {
+		return
+	}
+
 	entry := bridge.devices[deviceId]
 	if entry.timer != nil {
 		entry.timer.Stop()
@@ -237,11 +242,24 @@ func (bridge *HomeAssistantBridge) schedulePublish(deviceId string) {
 	})
 }
 
+// Close stops publishing discovery messages which are still pending.
+func (bridge *HomeAssistantBridge) Close() {
+	bridge.mux.Lock()
+	defer bridge.mux.Unlock()
+
+	bridge.closed = true
+	for _, entry := range bridge.devices {
+		if entry.timer != nil {
+			entry.timer.Stop()
+		}
+	}
+}
+
 // publish sends the device discovery message with all registered components.
 func (bridge *HomeAssistantBridge) publish(deviceId string) {
 	bridge.mux.Lock()
 	entry, ok := bridge.devices[deviceId]
-	if !ok {
+	if !ok || bridge.closed {
 		bridge.mux.Unlock()
 		return
 	}

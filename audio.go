@@ -114,6 +114,17 @@ func (bridge *AudioBridge) deviceAdded(device *Device) {
 	bridge.mux.Unlock()
 }
 
+// Close stops polling the audio status.
+func (bridge *AudioBridge) Close() {
+	bridge.mux.Lock()
+	monitor := bridge.monitor
+	bridge.mux.Unlock()
+
+	if monitor != nil {
+		monitor.Stop()
+	}
+}
+
 func (bridge *AudioBridge) registerEntities(device *Device) {
 	if bridge.haBridge == nil {
 		return

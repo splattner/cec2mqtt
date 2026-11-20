@@ -105,6 +105,23 @@ func (m *Mqtt) onConnect(client mqtt.Client) {
 	}
 }
 
+// Close publishes the will message on the state topic, as the broker doesn't
+// send it on a clean disconnect, and disconnects from the broker.
+func (m *Mqtt) Close() {
+	if m.config.StateTopic != "" && m.config.WillMessage != "" && m.client.IsConnected() {
+		token := m.client.Publish(m.config.StateTopic, 0, true, m.config.WillMessage)
+		if !token.WaitTimeout(2 * time.Second) {
+			slog.Warn("Timed out publishing the will message")
+		} else if err := token.Error(); err != nil {
+			slog.Warn("Failed to publish the will message", "error", err)
+		}
+	}
+
+	// Gives in-flight messages up to 250ms to be sent.
+	m.client.Disconnect(250)
+	slog.Info("Disconnected from MQTT")
+}
+
 func (m *Mqtt) BuildTopic(device *Device, suffix string) string {
 	return fmt.Sprintf("%s/%s/%s", m.config.BaseTopic, device.Config.MqttTopic, suffix)
 }

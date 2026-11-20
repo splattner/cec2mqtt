@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // BuildVersion is overridden at build time using
@@ -107,18 +108,38 @@ func main() {
 		logFatal("Failed to open CEC connection", "error", err)
 	}
 
-	signals := make(chan os.Signal, 1)
-	done := make(chan bool, 1)
-
+	signals := make(chan os.Signal, 2)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 
+	slog.Info("Cec2Mqtt started")
+	sig := <-signals
+	slog.Info("Shutting down", "signal", sig.String())
+
 	go func() {
-		<-signals
-		done <- true
+		select {
+		case <-signals:
+			slog.Warn("Received a second signal, exiting immediately")
+		case <-time.After(shutdownTimeout):
+			slog.Error("Shutdown timed out, exiting", "timeout", shutdownTimeout)
+		}
+		os.Exit(1)
 	}()
 
-	slog.Info("Cec2Mqtt started")
-	<-done
-	slog.Info("Exiting")
-	devices.Save()
+	shutdown(container, devices)
+	slog.Info("Exited")
+}
+
+// shutdownTimeout limits how long shutting down may take, so a hanging libcec
+// call or MQTT broker can't keep the process (and the CEC adapter) alive.
+const shutdownTimeout = 10 * time.Second
+
+// shutdown stops the bridges, publishes the will message and disconnects from
+// MQTT, and saves the devices. libcec has no way to close the connection
+// through gocec, the adapter is released when the process exits.
+func shutdown(container *Container, devices *DeviceRegistry) {
+	container.Close()
+
+	if err := devices.Save(); err != nil {
+		slog.Error("Failed to save devices on shutdown", "error", err)
+	}
 }
