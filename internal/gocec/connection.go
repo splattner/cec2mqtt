@@ -12,12 +12,15 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"unsafe"
 )
 
 type Connection struct {
 	connection C.libcec_connection_t
 	config     *Configuration
+	// opened is set once an adapter was opened successfully.
+	opened atomic.Bool
 
 	closeOnce sync.Once
 }
@@ -35,9 +38,18 @@ func NewConnection(config *Configuration) (*Connection, error) {
 	return &Connection{connection: connection, config: config}, nil
 }
 
-// Close closes the adapter, if it was opened, and frees libcec. The
-// connection must not be used afterwards. It's safe to call more than once.
+// Close closes the adapter and frees libcec. The connection must not be used
+// afterwards. It's safe to call more than once.
+//
+// Without an opened adapter it does nothing: libcec_close and libcec_destroy
+// then free a thread libcec started, while it's still running, so the process
+// can crash later on (seen with libcec 6). The process is about to exit in
+// that case anyway, as nothing works without an adapter.
 func (conn *Connection) Close() {
+	if !conn.opened.Load() {
+		return
+	}
+
 	conn.closeOnce.Do(func() {
 		C.libcec_close(conn.connection)
 		C.libcec_destroy(conn.connection)
@@ -72,6 +84,8 @@ func (conn *Connection) Open(adapter Adapter) error {
 	if result < 1 {
 		return fmt.Errorf("failed to open adapter %s", adapter.Comm)
 	}
+
+	conn.opened.Store(true)
 
 	return nil
 }
