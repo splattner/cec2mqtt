@@ -9,6 +9,7 @@ type App struct {
 	audio         *AudioBridge
 	power         *PowerBridge
 	remote        *RemoteBridge
+	diagnostics   *DiagnosticsBridge
 }
 
 // newApp sets up all bridges. Devices found on the CEC bus afterwards are
@@ -23,6 +24,7 @@ func newApp(config *Config, devices *DeviceRegistry, mqtt mqttClient, cec cecBus
 	app.audio = setupAudioBridge(cec, mqtt, devices, app.homeAssistant)
 	app.power = setupPowerBridge(cec, mqtt, devices, app.homeAssistant)
 	app.remote = setupRemoteBridge(cec, mqtt, devices, app.homeAssistant)
+	app.diagnostics = setupDiagnosticsBridge(mqtt, devices, app.homeAssistant)
 
 	return app
 }
