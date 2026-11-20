@@ -4,14 +4,73 @@ import (
 	"encoding/json"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/RobertMe/gocec"
 )
+
+// waitFor polls condition until it's true, for tests running on the real clock.
+func waitFor(t *testing.T, what string, condition func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if condition() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", what)
+}
 
 type fakeCec struct {
 	mux      sync.Mutex
 	address  gocec.LogicalAddress
 	messages []gocec.Message
+
+	// powerStatus is what libcec reports per device, unknown when not set.
+	powerStatus map[gocec.LogicalAddress]gocec.PowerStatus
+	poweredOn   []gocec.LogicalAddress
+	standby     []gocec.LogicalAddress
+
+	activeSource         gocec.LogicalAddress
+	activeSourceRequests int
+}
+
+func (cec *fakeCec) PowerOn(address gocec.LogicalAddress) {
+	cec.mux.Lock()
+	defer cec.mux.Unlock()
+	cec.poweredOn = append(cec.poweredOn, address)
+}
+
+func (cec *fakeCec) Standby(address gocec.LogicalAddress) {
+	cec.mux.Lock()
+	defer cec.mux.Unlock()
+	cec.standby = append(cec.standby, address)
+}
+
+func (cec *fakeCec) PowerStatus(address gocec.LogicalAddress) gocec.PowerStatus {
+	cec.mux.Lock()
+	defer cec.mux.Unlock()
+	if status, ok := cec.powerStatus[address]; ok {
+		return status
+	}
+	return gocec.PowerStatusUnknown
+}
+
+func (cec *fakeCec) setPowerStatus(address gocec.LogicalAddress, status gocec.PowerStatus) {
+	cec.mux.Lock()
+	defer cec.mux.Unlock()
+	if cec.powerStatus == nil {
+		cec.powerStatus = make(map[gocec.LogicalAddress]gocec.PowerStatus)
+	}
+	cec.powerStatus[address] = status
+}
+
+func (cec *fakeCec) ActiveSource() gocec.LogicalAddress {
+	cec.mux.Lock()
+	defer cec.mux.Unlock()
+	cec.activeSourceRequests++
+	return cec.activeSource
 }
 
 func (cec *fakeCec) Transmit(message gocec.Message) {

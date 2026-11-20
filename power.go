@@ -18,10 +18,20 @@ type PowerState struct {
 }
 
 type PowerBridge struct {
-	cec      *Cec
-	mqtt     *Mqtt
+	cec      cecSender
+	mqtt     mqttClient
 	devices  *DeviceRegistry
 	haBridge *HomeAssistantBridge
+
+	// publisher publishes the power states in order, see publishQueue.
+	publisher *publishQueue
+
+	// The power status is polled every longInterval. After a command or a
+	// power related CEC message it's polled every shortInterval, for
+	// shortDuration.
+	longInterval  time.Duration
+	shortInterval time.Duration
+	shortDuration time.Duration
 
 	monitors      map[string]*Monitor
 	monitorsMutex sync.Mutex
@@ -30,133 +40,163 @@ type PowerBridge struct {
 	statesMutex sync.Mutex
 }
 
-func InitPowerBridge(container *Container) {
-	cec := container.Get("cec").(*Cec)
-	mqtt := container.Get("mqtt").(*Mqtt)
-	devices := container.Get("devices").(*DeviceRegistry)
-	bridge := &PowerBridge{
-		cec:     cec,
-		mqtt:    mqtt,
-		devices: devices,
+func newPowerBridge(cec cecSender, mqtt mqttClient, devices *DeviceRegistry) *PowerBridge {
+	return &PowerBridge{
+		cec:       cec,
+		mqtt:      mqtt,
+		devices:   devices,
+		publisher: newPublishQueue(mqtt, 64),
+
+		longInterval: 5 * time.Minute,
+		// Some TVs keep reporting "on" for a few seconds after accepting
+		// <Standby>, so keep polling for a while.
+		shortInterval: 2 * time.Second,
+		shortDuration: 30 * time.Second,
 
 		monitors: make(map[string]*Monitor),
 		states:   make(map[string]*PowerState),
 	}
+}
+
+func InitPowerBridge(container *Container) {
+	cec := container.Get("cec").(*Cec)
+	mqtt := container.Get("mqtt").(*Mqtt)
+	devices := container.Get("devices").(*DeviceRegistry)
+	bridge := newPowerBridge(cec, mqtt, devices)
 
 	container.Register("bridge.power", bridge)
 
-	devices.RegisterDeviceAddedHandler(func(device *Device) {
-		bridge.statesMutex.Lock()
-		bridge.monitorsMutex.Lock()
-		defer bridge.statesMutex.Unlock()
-		defer bridge.monitorsMutex.Unlock()
-		bridge.states[device.Id] = &PowerState{state: "unknown", published: false}
-		request := bridge.createStatusRequester(device)
-		bridge.monitors[device.Id] = CreateMonitor(
-			request,
-			bridge.createRunner(device, request),
-			5*time.Minute,
-			// After a command or a power related CEC message, poll every 2
-			// seconds for 30 seconds. Some TVs keep reporting "on" for a few
-			// seconds after accepting <Standby>.
-			2*time.Second,
-			30*time.Second,
-		)
-
-		slog.Debug("Subscribing to power change requests", "device.id", device.Id)
-
-		mqtt.Subscribe(mqtt.BuildTopic(device, "power/set"), 0, func(payload []byte) {
-			switch string(payload) {
-			case "on":
-				slog.Info("Powering device on as requested on MQTT", "device.id", device.Id)
-				cec.connection.PowerOnDevice(device.LogicalAddress)
-			case "off":
-				slog.Info("Turning device into standby as requested on MQTT", "device.id", device.Id)
-				cec.connection.StandByDevice(device.LogicalAddress)
-			default:
-				slog.Warn("Unsupported power request, use \"on\" or \"off\"", "device.id", device.Id, "payload", string(payload))
-				return
-			}
-
-			// Poll the power status more often, so the new state is published soon.
-			bridge.MonitorPower(device.Id)
-		})
-	})
+	devices.RegisterDeviceAddedHandler(bridge.deviceAdded)
 
 	if haBridge, ok := container.Get("home-assistant").(*HomeAssistantBridge); ok {
 		slog.Info("Enabling Home Assistant configuration for power")
 		bridge.haBridge = haBridge
-		devices.RegisterDeviceAddedHandler(func(device *Device) {
-			haBridge.RegisterSwitch(device, "power")
-		})
 		haBridge.RegisterBirthHandler(bridge.resendAll)
 	}
 
-	getDevice := func(address gocec.LogicalAddress) *Device {
-		return devices.FindByLogicalAddress(address)
-	}
-
-	cec.RegisterMessageHandler(func(message gocec.Message) {
-		device := getDevice(message.Source())
-		parameters := message.Parameters()
-		if device == nil || len(parameters) < 1 {
-			return
-		}
-		status := gocec.PowerStatus(parameters[0])
-
-		slog.Debug("New power status received",
-			"device.id", device.Id,
-			"status", status,
-		)
-
-		bridge.setPowerStatus(device, status)
-	}, gocec.OpcodeReportPowerStatus)
-
-	cec.RegisterMessageHandler(func(message gocec.Message) {
-		device := getDevice(message.Source())
-		if device == nil {
-			return
-		}
-
-		slog.Debug("Restarting power monitor because of system audio mode change", "device.id", device.Id)
-
-		bridge.MonitorPower(device.Id)
-	}, gocec.OpcodeSetSystemAudioMode)
-
-	// Devices which wake up announce themselves (like a TV turned on with its
-	// own remote broadcasting its physical address and menu language), and
-	// vendor commands are often sent on power changes as well. Check the power
-	// status of the sender soon, instead of on the next regular poll.
-	cec.RegisterMessageHandler(func(message gocec.Message) {
-		device := getDevice(message.Source())
-		if device == nil {
-			return
-		}
-
-		slog.Debug("Restarting power monitor because the device announced itself",
-			"device.id", device.Id,
-			"opcode", message.Opcode(),
-		)
-
-		bridge.MonitorPower(device.Id)
-	}, gocec.OpcodeReportPhysicalAddress, gocec.OpcodeSetMenuLanguage, gocec.OpcodeVendorCommand, gocec.OpcodeVendorCommandWithId)
-
-	cec.RegisterMessageHandler(func(message gocec.Message) {
-		slog.Debug("Restarting power monitor on all devices",
-			"message.source", message.Source(),
-			"message.destination", message.Destination(),
-			"message.opcode", message.Opcode(),
-			"message.raw", []byte(message),
-		)
-
-		bridge.monitorsMutex.Lock()
-		defer bridge.monitorsMutex.Unlock()
-		for _, monitor := range bridge.monitors {
-			monitor.Reset()
-		}
-	}, gocec.OpcodeStandby, gocec.OpcodeActiveSource)
+	cec.RegisterMessageHandler(bridge.handleReportPowerStatus, gocec.OpcodeReportPowerStatus)
+	cec.RegisterMessageHandler(bridge.handleDeviceActivity,
+		gocec.OpcodeSetSystemAudioMode,
+		gocec.OpcodeReportPhysicalAddress,
+		gocec.OpcodeSetMenuLanguage,
+		gocec.OpcodeVendorCommand,
+		gocec.OpcodeVendorCommandWithId,
+	)
+	cec.RegisterMessageHandler(bridge.handleBusChange, gocec.OpcodeStandby, gocec.OpcodeActiveSource)
 
 	mqtt.RegisterConnectedHandler(bridge.resendAll)
+}
+
+func (bridge *PowerBridge) deviceAdded(device *Device) {
+	bridge.statesMutex.Lock()
+	bridge.states[device.Id] = &PowerState{state: "unknown", published: false}
+	bridge.statesMutex.Unlock()
+
+	request := bridge.createStatusRequester(device)
+	monitor := CreateMonitor(
+		request,
+		bridge.createRunner(device, request),
+		bridge.longInterval,
+		bridge.shortInterval,
+		bridge.shortDuration,
+	)
+
+	bridge.monitorsMutex.Lock()
+	bridge.monitors[device.Id] = monitor
+	bridge.monitorsMutex.Unlock()
+
+	slog.Debug("Subscribing to power change requests", "device.id", device.Id)
+	bridge.mqtt.Subscribe(bridge.mqtt.BuildTopic(device, "power/set"), 0, func(payload []byte) {
+		bridge.handlePowerRequest(device, payload)
+	})
+
+	if bridge.haBridge != nil {
+		bridge.haBridge.RegisterSwitch(device, "power")
+	}
+}
+
+func (bridge *PowerBridge) handlePowerRequest(device *Device, payload []byte) {
+	switch string(payload) {
+	case "on":
+		slog.Info("Powering device on as requested on MQTT", "device.id", device.Id)
+		bridge.cec.PowerOn(device.LogicalAddress)
+	case "off":
+		slog.Info("Turning device into standby as requested on MQTT", "device.id", device.Id)
+		bridge.cec.Standby(device.LogicalAddress)
+	default:
+		slog.Warn("Unsupported power request, use \"on\" or \"off\"", "device.id", device.Id, "payload", string(payload))
+		return
+	}
+
+	// Poll the power status more often, so the new state is published soon.
+	bridge.MonitorPower(device.Id)
+}
+
+func (bridge *PowerBridge) handleReportPowerStatus(message gocec.Message) {
+	device := bridge.devices.FindByLogicalAddress(message.Source())
+	parameters := message.Parameters()
+	if device == nil || len(parameters) < 1 {
+		return
+	}
+	status := gocec.PowerStatus(parameters[0])
+
+	slog.Debug("New power status received",
+		"device.id", device.Id,
+		"status", status,
+	)
+
+	bridge.setPowerStatus(device, status)
+}
+
+// handleDeviceActivity checks the power status of the sender soon, instead of
+// on the next regular poll. Devices which wake up announce themselves (like a
+// TV turned on with its own remote broadcasting its physical address and menu
+// language), vendor commands are often sent on power changes as well, and an
+// audio system changes its system audio mode when powering on or off.
+func (bridge *PowerBridge) handleDeviceActivity(message gocec.Message) {
+	device := bridge.devices.FindByLogicalAddress(message.Source())
+	if device == nil {
+		return
+	}
+
+	slog.Debug("Restarting power monitor because of device activity",
+		"device.id", device.Id,
+		"opcode", message.Opcode(),
+	)
+
+	bridge.MonitorPower(device.Id)
+}
+
+// handleBusChange restarts the power monitor of all devices, as a broadcast
+// standby or a new active source can change the power of any device.
+func (bridge *PowerBridge) handleBusChange(message gocec.Message) {
+	slog.Debug("Restarting power monitor on all devices",
+		"message.source", message.Source(),
+		"message.destination", message.Destination(),
+		"message.opcode", message.Opcode(),
+		"message.raw", []byte(message),
+	)
+
+	bridge.monitorsMutex.Lock()
+	defer bridge.monitorsMutex.Unlock()
+	for _, monitor := range bridge.monitors {
+		monitor.Reset()
+	}
+}
+
+// Close stops polling and publishing.
+func (bridge *PowerBridge) Close() {
+	bridge.monitorsMutex.Lock()
+	monitors := make([]*Monitor, 0, len(bridge.monitors))
+	for _, monitor := range bridge.monitors {
+		monitors = append(monitors, monitor)
+	}
+	bridge.monitorsMutex.Unlock()
+
+	for _, monitor := range monitors {
+		monitor.Stop()
+	}
+	bridge.publisher.Close()
 }
 
 func (bridge *PowerBridge) MonitorPower(deviceId string) {
@@ -191,7 +231,9 @@ func (bridge *PowerBridge) setPowerStatus(device *Device, status gocec.PowerStat
 	state.state = value
 
 	if value != "unknown" || !state.published {
-		go bridge.mqtt.Publish(bridge.mqtt.BuildTopic(device, "power"), 0, false, value)
+		// Queued while holding statesMutex, so the states are published in
+		// the order they were set.
+		bridge.publisher.Publish(bridge.mqtt.BuildTopic(device, "power"), 0, false, value)
 		state.published = true
 	} else {
 		state.published = false
@@ -252,7 +294,7 @@ func (bridge *PowerBridge) createRunner(device *Device, request func()) Runner {
 
 		// libcec's (possibly cached) status, for devices which don't reply to
 		// the request above.
-		status := bridge.cec.connection.GetPowerStatus(device.LogicalAddress)
+		status := bridge.cec.PowerStatus(device.LogicalAddress)
 
 		logTrace("Updating power from monitor",
 			"device.logical_address", device.LogicalAddress,
@@ -266,19 +308,26 @@ func (bridge *PowerBridge) createRunner(device *Device, request func()) Runner {
 
 func (bridge *PowerBridge) resendAll() {
 	slog.Debug("Resending all power states")
+
+	devices := bridge.devices.List()
+	if bridge.haBridge != nil {
+		for _, device := range devices {
+			bridge.statesMutex.Lock()
+			_, ok := bridge.states[device.Id]
+			bridge.statesMutex.Unlock()
+			if ok {
+				bridge.haBridge.RegisterSwitch(device, "power")
+			}
+		}
+	}
+
+	// Through the publisher while holding statesMutex, so a state set at the
+	// same time can't be overtaken by an older one.
 	bridge.statesMutex.Lock()
 	defer bridge.statesMutex.Unlock()
-	for _, device := range bridge.devices.List() {
-		var state *PowerState
-		var ok bool
-		if state, ok = bridge.states[device.Id]; !ok {
-			continue
+	for _, device := range devices {
+		if state, ok := bridge.states[device.Id]; ok {
+			bridge.publisher.Publish(bridge.mqtt.BuildTopic(device, "power"), 0, false, state.state)
 		}
-
-		if bridge.haBridge != nil {
-			bridge.haBridge.RegisterSwitch(device, "power")
-		}
-
-		bridge.mqtt.Publish(bridge.mqtt.BuildTopic(device, "power"), 0, false, state.state)
 	}
 }

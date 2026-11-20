@@ -18,7 +18,6 @@ type ActiveSourceBridge struct {
 	// libcec callbacks and the monitor goroutine.
 	mux sync.Mutex
 
-	cec            *Cec
 	sender         cecSender
 	mqtt           mqttClient
 	activeSource   *Device
@@ -49,7 +48,6 @@ func InitActiveSourceBridge(container *Container) {
 	devices := container.Get("devices").(*DeviceRegistry)
 
 	bridge := newActiveSourceBridge(cec, mqtt, devices)
-	bridge.cec = cec
 
 	if haBridge, ok := container.Get("home-assistant").(*HomeAssistantBridge); ok {
 		slog.Info("Enabling Home Assistant configuration for active source")
@@ -200,7 +198,7 @@ func (bridge *ActiveSourceBridge) checkActiveSource() {
 		return
 	}
 
-	address := bridge.cec.connection.GetActiveSource()
+	address := bridge.sender.ActiveSource()
 
 	var newSource *Device = nil
 	newSourceId := ""

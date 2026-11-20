@@ -53,11 +53,12 @@ func TestActiveSourceNotCheckedWhileTVInStandby(t *testing.T) {
 	bridge.allowedSources[tv.LogicalAddress] = false
 	bridge.mux.Unlock()
 
-	// The test bridge has no libcec connection, so this would panic if the
-	// active source was requested.
 	bridge.checkActiveSource()
 
 	if got := mqtt.messages("cec2mqtt/Player/is_active_source"); len(got) != 2 || got[1] != "off" {
 		t.Errorf("expected active source to be cleared, got %q", got)
+	}
+	if cec.activeSourceRequests != 0 {
+		t.Errorf("active source requested %d times while the TV is in standby", cec.activeSourceRequests)
 	}
 }
