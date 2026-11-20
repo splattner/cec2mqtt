@@ -31,14 +31,14 @@ COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 
-COPY *.go ./
+COPY cmd ./cmd
 COPY internal ./internal
 
 # go vet and the tests run in CI (and are platform independent), so they're not repeated here.
 ARG VERSION=dev
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build,id=go-build-$TARGETPLATFORM \
-    CGO_ENABLED=1 xx-go build -trimpath -ldflags "-s -w -X main.BuildVersion=${VERSION}" -o /out/cec2mqtt . \
+    CGO_ENABLED=1 xx-go build -trimpath -ldflags "-s -w -X github.com/splattner/cec2mqtt/internal/version.Version=${VERSION}" -o /out/cec2mqtt ./cmd/cec2mqtt \
  && xx-verify /out/cec2mqtt
 
 FROM docker.io/library/alpine:${ALPINE_VERSION}
