@@ -123,6 +123,18 @@ func (bridge *HomeAssistantBridge) RegisterSensor(device *Device, property strin
 	bridge.register("sensor", device, property, config)
 }
 
+// RegisterDiagnosticSensor registers a text sensor reading the property's
+// state topic, shown in the diagnostic section of the device.
+func (bridge *HomeAssistantBridge) RegisterDiagnosticSensor(device *Device, property string, icon string) {
+	config := bridge.createConfig(device, property)
+	config["entity_category"] = "diagnostic"
+	if icon != "" {
+		config["icon"] = icon
+	}
+
+	bridge.register("sensor", device, property, config)
+}
+
 // RegisterButton registers a button which publishes payload to the command topic
 // of commandProperty when pressed. objectId identifies the button itself.
 func (bridge *HomeAssistantBridge) RegisterButton(device *Device, objectId string, commandProperty string, payload string) {
@@ -272,7 +284,7 @@ func (bridge *HomeAssistantBridge) publish(deviceId string) {
 			"identifiers":  []string{"cec2mqtt_" + device.Id},
 			"name":         device.CecDevice.OSD,
 			"sw_version":   "Cec2Mqtt " + BuildVersion,
-			"manufacturer": device.CecDevice.vendor.String(),
+			"manufacturer": vendorName(device.CecDevice.vendor),
 		},
 		"origin": map[string]interface{}{
 			"name":        "cec2mqtt",
@@ -318,6 +330,9 @@ var entityNames = map[string]string{
 	"volume_down":      "Volume down",
 	"mute":             "Mute",
 	"remote_key":       "Remote key",
+	"physical_address": "Physical address",
+	"logical_address":  "Logical address",
+	"vendor":           "Vendor",
 }
 
 // createConfig creates the component configuration. The unique_id must stay

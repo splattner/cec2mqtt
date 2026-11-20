@@ -133,6 +133,9 @@ All topics are prefixed with ``<base_topic>/<mqtt_topic of the device>/``, for e
 | ``volume/set`` | command | ``up`` or ``down`` (audio system only) |
 | ``mute`` | state | ``on`` or ``off`` (audio system only) |
 | ``mute/set`` | command | ``on``, ``off`` or ``toggle`` (audio system only) |
+| ``physical_address`` | state | Physical address, i.e. the HDMI port the device is connected to, e.g. ``1.0.0.0`` |
+| ``logical_address`` | state | Logical address (device type) on the CEC bus, e.g. ``Playback device 1 (4)`` |
+| ``vendor`` | state | Vendor reported by the device, e.g. ``Samsung`` |
 
 Keys can be sent from Home Assistant using the ``mqtt.publish`` action:
 ```yaml
@@ -154,6 +157,7 @@ With the Home Assistant integration enabled, every CEC device shows up as a devi
 | Volume up / Volume down | button | audio system |
 | Mute | switch | audio system |
 | Remote key | event | TV, and other devices once they send a key press |
+| Physical address, Logical address, Vendor | diagnostic sensors | all |
 
 cec2mqtt uses Home Assistant's device based MQTT discovery (one discovery message per device). Entities created by earlier
 versions, which used one discovery message per entity, are migrated automatically and keep their entity ID, name and history.

@@ -55,7 +55,7 @@ func TestAppWiring(t *testing.T) {
 		}
 
 		wantComponents := map[*Device]map[string]string{
-			tv:       {"power": "switch", "is_active_source": "binary_sensor", "source": "select", "remote_key": "event"},
+			tv:       {"power": "switch", "is_active_source": "binary_sensor", "source": "select", "remote_key": "event", "physical_address": "sensor"},
 			receiver: {"power": "switch", "is_active_source": "binary_sensor", "volume": "sensor", "mute": "switch"},
 		}
 		for device, want := range wantComponents {
