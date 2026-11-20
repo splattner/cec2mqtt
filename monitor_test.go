@@ -3,88 +3,125 @@ package main
 import (
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
-func waitFor(t *testing.T, what string, condition func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if condition() {
-			return
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	t.Fatalf("timed out waiting for %s", what)
-}
-
 func TestMonitorRunsAndResets(t *testing.T) {
-	var starts, runs atomic.Int32
+	synctest.Test(t, func(t *testing.T) {
+		var starts, runs atomic.Int32
 
-	monitor := CreateMonitor(
-		func() { starts.Add(1) },
-		func() { runs.Add(1) },
-		time.Hour,           // long interval: never reached in this test
-		10*time.Millisecond, // short interval
-		time.Hour,           // short duration
-	)
+		monitor := CreateMonitor(
+			func() { starts.Add(1) },
+			func() { runs.Add(1) },
+			time.Hour,   // long interval
+			time.Second, // short interval
+			time.Hour,   // short duration
+		)
+		defer monitor.Stop()
 
-	waitFor(t, "initial start", func() bool { return starts.Load() == 1 })
-	waitFor(t, "periodic runs", func() bool { return runs.Load() >= 3 })
+		synctest.Wait()
+		if starts.Load() != 1 || runs.Load() != 1 {
+			t.Fatalf("after start: starts = %d, runs = %d, want 1, 1", starts.Load(), runs.Load())
+		}
 
-	monitor.Reset()
-	waitFor(t, "start after reset", func() bool { return starts.Load() == 2 })
+		time.Sleep(3500 * time.Millisecond)
+		if runs.Load() != 4 {
+			t.Errorf("after 3.5s: runs = %d, want 4", runs.Load())
+		}
+
+		monitor.Reset()
+		synctest.Wait()
+		if starts.Load() != 2 || runs.Load() != 5 {
+			t.Errorf("after reset: starts = %d, runs = %d, want 2, 5", starts.Load(), runs.Load())
+		}
+
+		// The reset restarted the short interval.
+		time.Sleep(1500 * time.Millisecond)
+		if runs.Load() != 6 {
+			t.Errorf("1.5s after reset: runs = %d, want 6", runs.Load())
+		}
+	})
 }
 
 func TestMonitorSwitchesToLongInterval(t *testing.T) {
-	var runs atomic.Int32
+	synctest.Test(t, func(t *testing.T) {
+		var runs atomic.Int32
 
-	CreateMonitor(
-		func() {},
-		func() { runs.Add(1) },
-		time.Hour,
-		5*time.Millisecond,
-		50*time.Millisecond,
-	)
+		monitor := CreateMonitor(
+			func() {},
+			func() { runs.Add(1) },
+			time.Hour,
+			time.Second,
+			10500*time.Millisecond,
+		)
+		defer monitor.Stop()
 
-	time.Sleep(150 * time.Millisecond)
-	after := runs.Load()
-	time.Sleep(100 * time.Millisecond)
+		// The initial run plus one every second during the short duration.
+		time.Sleep(11 * time.Second)
+		if runs.Load() != 11 {
+			t.Errorf("during short duration: runs = %d, want 11", runs.Load())
+		}
 
-	if runs.Load() != after {
-		t.Errorf("runner still called with short interval after short duration ended (%d -> %d)", after, runs.Load())
-	}
+		time.Sleep(59 * time.Minute)
+		if runs.Load() != 11 {
+			t.Errorf("runner still called with short interval after short duration ended: runs = %d", runs.Load())
+		}
+
+		time.Sleep(time.Minute)
+		if runs.Load() != 12 {
+			t.Errorf("after long interval: runs = %d, want 12", runs.Load())
+		}
+	})
 }
 
 func TestMonitorResetDoesNotBlock(t *testing.T) {
-	release := make(chan struct{})
-	defer close(release)
+	synctest.Test(t, func(t *testing.T) {
+		release := make(chan struct{})
 
-	var starts atomic.Int32
-	monitor := CreateMonitor(
-		func() {
-			// Block the first start so the monitor can't receive any resets.
-			if starts.Add(1) == 1 {
-				<-release
-			}
-		},
-		func() {},
-		time.Hour,
-		time.Hour,
-		time.Hour,
-	)
+		var starts atomic.Int32
+		monitor := CreateMonitor(
+			func() {
+				// Block the first start so the monitor can't receive any resets.
+				if starts.Add(1) == 1 {
+					<-release
+				}
+			},
+			func() {},
+			time.Hour,
+			time.Hour,
+			time.Hour,
+		)
 
-	done := make(chan struct{})
-	go func() {
 		for i := 0; i < 100; i++ {
 			monitor.Reset()
 		}
-		close(done)
-	}()
 
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("Reset blocked while the monitor was busy")
-	}
+		// All resets were merged into one.
+		close(release)
+		synctest.Wait()
+		if starts.Load() != 2 {
+			t.Errorf("starts = %d, want 2", starts.Load())
+		}
+
+		monitor.Stop()
+	})
+}
+
+func TestMonitorStop(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var runs atomic.Int32
+		monitor := CreateMonitor(func() {}, func() { runs.Add(1) }, time.Second, time.Second, time.Second)
+
+		time.Sleep(2500 * time.Millisecond)
+		monitor.Stop()
+		monitor.Stop()  // safe to call again
+		monitor.Reset() // doesn't block after stopping
+
+		after := runs.Load()
+		time.Sleep(time.Hour)
+		if runs.Load() != after {
+			t.Errorf("runner called after Stop: %d -> %d", after, runs.Load())
+		}
+	})
 }

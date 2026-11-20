@@ -212,3 +212,19 @@ func (cec *Cec) Transmit(message gocec.Message) {
 func (cec *Cec) AdapterAddress() gocec.LogicalAddress {
 	return cec.adapterAddress
 }
+
+func (cec *Cec) PowerOn(address gocec.LogicalAddress) {
+	cec.connection.PowerOnDevice(address)
+}
+
+func (cec *Cec) Standby(address gocec.LogicalAddress) {
+	cec.connection.StandByDevice(address)
+}
+
+func (cec *Cec) PowerStatus(address gocec.LogicalAddress) gocec.PowerStatus {
+	return cec.connection.GetPowerStatus(address)
+}
+
+func (cec *Cec) ActiveSource() gocec.LogicalAddress {
+	return cec.connection.GetActiveSource()
+}
