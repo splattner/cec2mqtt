@@ -36,6 +36,25 @@ type fakeCec struct {
 	activeSourceRequests int
 
 	handlers map[gocec.Opcode][]MessageReceivedHandler
+
+	// scan is called by Scan, when set.
+	scan  func()
+	scans int
+}
+
+func (cec *fakeCec) Scan() {
+	cec.mux.Lock()
+	cec.scans++
+	scan := cec.scan
+	cec.mux.Unlock()
+
+	if scan != nil {
+		scan()
+	}
+}
+
+func (cec *fakeCec) AdapterPath() string {
+	return "/dev/cec0"
 }
 
 func (cec *fakeCec) RegisterMessageHandler(handler MessageReceivedHandler, opcodes ...gocec.Opcode) {

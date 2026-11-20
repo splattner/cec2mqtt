@@ -172,6 +172,11 @@ func (bridge *PowerBridge) handleBusChange(message gocec.Message) {
 		"message.raw", []byte(message),
 	)
 
+	bridge.MonitorAll()
+}
+
+// MonitorAll polls the power status of all devices more often for a while.
+func (bridge *PowerBridge) MonitorAll() {
 	bridge.monitorsMutex.Lock()
 	defer bridge.monitorsMutex.Unlock()
 	for _, monitor := range bridge.monitors {

@@ -36,10 +36,13 @@ type HomeAssistantBridge struct {
 	// shortly after each other into a single discovery message.
 	publishDelay time.Duration
 
-	mux           sync.Mutex
-	closed        bool
-	birthHandlers []HomeAssistantBirthHandler
-	devices       map[string]*haDevice
+	mux    sync.Mutex
+	closed bool
+	// bridgeDeviceId is the ID of the Cec2Mqtt device itself, which the CEC
+	// devices are connected through.
+	bridgeDeviceId string
+	birthHandlers  []HomeAssistantBirthHandler
+	devices        map[string]*haDevice
 	// legacyTopics holds the single component discovery topics which are
 	// being watched for retained messages of earlier versions.
 	legacyTopics map[string]bool
@@ -137,11 +140,14 @@ func (bridge *HomeAssistantBridge) RegisterDiagnosticSensor(device *Device, prop
 
 // RegisterButton registers a button which publishes payload to the command topic
 // of commandProperty when pressed. objectId identifies the button itself.
-func (bridge *HomeAssistantBridge) RegisterButton(device *Device, objectId string, commandProperty string, payload string) {
+func (bridge *HomeAssistantBridge) RegisterButton(device *Device, objectId string, commandProperty string, payload string, icon string) {
 	config := bridge.createConfig(device, objectId)
 	delete(config, "state_topic")
 	config["command_topic"] = bridge.mqtt.BuildTopic(device, commandProperty+"/set")
 	config["payload_press"] = payload
+	if icon != "" {
+		config["icon"] = icon
+	}
 
 	bridge.register("button", device, objectId, config)
 }
@@ -250,6 +256,14 @@ func (bridge *HomeAssistantBridge) schedulePublish(deviceId string) {
 	})
 }
 
+// SetBridgeDevice sets the Cec2Mqtt device, which the CEC devices are shown
+// as connected through.
+func (bridge *HomeAssistantBridge) SetBridgeDevice(device *Device) {
+	bridge.mux.Lock()
+	defer bridge.mux.Unlock()
+	bridge.bridgeDeviceId = device.Id
+}
+
 // Close stops publishing discovery messages which are still pending.
 func (bridge *HomeAssistantBridge) Close() {
 	bridge.mux.Lock()
@@ -277,15 +291,33 @@ func (bridge *HomeAssistantBridge) publish(deviceId string) {
 	for objectId, config := range entry.components {
 		components[objectId] = config
 	}
+	bridgeDeviceId := bridge.bridgeDeviceId
 	bridge.mux.Unlock()
 
-	payload := map[string]interface{}{
-		"device": map[string]interface{}{
+	var deviceInfo map[string]interface{}
+	if device.CecDevice == nil {
+		// The Cec2Mqtt bridge itself.
+		deviceInfo = map[string]interface{}{
+			"identifiers":  []string{"cec2mqtt_" + device.Id},
+			"name":         device.Config.OSD,
+			"sw_version":   BuildVersion,
+			"manufacturer": "Cec2Mqtt",
+			"model":        "HDMI-CEC to MQTT bridge",
+		}
+	} else {
+		deviceInfo = map[string]interface{}{
 			"identifiers":  []string{"cec2mqtt_" + device.Id},
 			"name":         device.CecDevice.OSD,
 			"sw_version":   "Cec2Mqtt " + BuildVersion,
 			"manufacturer": vendorName(device.CecDevice.vendor),
-		},
+		}
+		if bridgeDeviceId != "" {
+			deviceInfo["via_device"] = "cec2mqtt_" + bridgeDeviceId
+		}
+	}
+
+	payload := map[string]interface{}{
+		"device": deviceInfo,
 		"origin": map[string]interface{}{
 			"name":        "cec2mqtt",
 			"sw_version":  BuildVersion,
@@ -333,6 +365,10 @@ var entityNames = map[string]string{
 	"physical_address": "Physical address",
 	"logical_address":  "Logical address",
 	"vendor":           "Vendor",
+	"standby_all":      "Standby all",
+	"rescan":           "Rescan devices",
+	"version":          "Version",
+	"adapter":          "CEC adapter",
 }
 
 // createConfig creates the component configuration. The unique_id must stay

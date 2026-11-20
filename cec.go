@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/RobertMe/gocec"
@@ -17,6 +18,8 @@ type Cec struct {
 	adapter    gocec.Adapter
 	// adapterAddress is the logical address of the CEC adapter, known after Start.
 	adapterAddress gocec.LogicalAddress
+	// started is set once the connection is open.
+	started atomic.Bool
 
 	devices                 *DeviceRegistry
 	messageReceivedHandlers map[gocec.Opcode][]MessageReceivedHandler
@@ -116,19 +119,37 @@ func (cec *Cec) Start() error {
 	cec.adapterAddress = adapterAddress
 	slog.Info("CEC adapter registered", "logical_address", adapterAddress)
 
+	cec.started.Store(true)
+	cec.Scan()
+
+	return nil
+}
+
+// Scan polls all logical addresses and adds the devices which answer and
+// aren't known yet. It takes a few seconds, and does nothing before Start.
+func (cec *Cec) Scan() {
+	if !cec.started.Load() {
+		slog.Warn("Not scanning for devices, the CEC connection isn't open yet")
+		return
+	}
+
 	addresses := cec.connection.ActiveDevices()
+	slog.Debug("Scanned for active devices", "count", len(addresses))
 
 	for _, address := range addresses {
 		// Don't register a device for the CEC adapter
-		if address != adapterAddress {
+		if address != cec.adapterAddress {
 			logTrace("Found active device", "logical_address", address)
 			_ = cec.GetDevice(address)
 		} else {
 			logTrace("Skipping active device as it's the adapter", "logical_address", address)
 		}
 	}
+}
 
-	return nil
+// AdapterPath returns the path of the CEC adapter, like /dev/cec0.
+func (cec *Cec) AdapterPath() string {
+	return cec.adapter.Path
 }
 
 func (cec *Cec) handleLogMessage(logMessage *gocec.LogMessage) {
