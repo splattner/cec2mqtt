@@ -127,8 +127,8 @@ func (bridge *AudioBridge) registerEntities(device *Device) {
 
 	bridge.haBridge.RegisterSensor(device, "volume", "%")
 	bridge.haBridge.RegisterSwitch(device, "mute")
-	bridge.haBridge.RegisterButton(device, "volume_up", "volume", "up")
-	bridge.haBridge.RegisterButton(device, "volume_down", "volume", "down")
+	bridge.haBridge.RegisterButton(device, "volume_up", "volume", "up", "mdi:volume-plus")
+	bridge.haBridge.RegisterButton(device, "volume_down", "volume", "down", "mdi:volume-minus")
 }
 
 func (bridge *AudioBridge) requestStatus(device *Device) {

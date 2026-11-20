@@ -45,6 +45,8 @@ func TestAppWiring(t *testing.T) {
 			"cec2mqtt/Receiver/power/set",
 			"cec2mqtt/Receiver/volume/set",
 			"cec2mqtt/Receiver/mute/set",
+			"cec2mqtt/bridge/standby_all/set",
+			"cec2mqtt/bridge/rescan/set",
 		} {
 			mqtt.mux.Lock()
 			_, ok := mqtt.subscriptions[topic]

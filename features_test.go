@@ -277,7 +277,7 @@ func TestHomeAssistantDiscovery(t *testing.T) {
 	}
 
 	ha.RegisterSwitch(device, "power")
-	ha.RegisterButton(device, "volume_up", "volume", "up")
+	ha.RegisterButton(device, "volume_up", "volume", "up", "")
 	ha.RegisterSelect(device, "source", []string{"Player", "TV"})
 	ha.RegisterEvent(device, "remote_key", []string{"select", "up"})
 

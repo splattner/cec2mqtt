@@ -137,6 +137,16 @@ All topics are prefixed with ``<base_topic>/<mqtt_topic of the device>/``, for e
 | ``logical_address`` | state | Logical address (device type) on the CEC bus, e.g. ``Playback device 1 (4)`` |
 | ``vendor`` | state | Vendor reported by the device, e.g. ``Samsung`` |
 
+Commands for the whole CEC bus, and information about cec2mqtt itself, use ``<base_topic>/bridge/``, for example
+``cec2mqtt/bridge/rescan/set``. (A device named ``bridge`` gets the MQTT topic ``bridge_device`` instead.)
+
+| Topic | Direction | Payload |
+| --- | --- | --- |
+| ``bridge/standby_all/set`` | command | anything: broadcasts standby, which turns off all devices |
+| ``bridge/rescan/set`` | command | anything: looks for devices which weren't found yet, e.g. because they were off when cec2mqtt started |
+| ``bridge/version`` | state | Version of cec2mqtt |
+| ``bridge/adapter`` | state | Path of the CEC adapter in use, e.g. ``/dev/cec0`` |
+
 Keys can be sent from Home Assistant using the ``mqtt.publish`` action:
 ```yaml
 action: mqtt.publish
@@ -158,6 +168,14 @@ With the Home Assistant integration enabled, every CEC device shows up as a devi
 | Mute | switch | audio system |
 | Remote key | event | TV, and other devices once they send a key press |
 | Physical address, Logical address, Vendor | diagnostic sensors | all |
+
+cec2mqtt itself shows up as a "Cec2Mqtt" device, which all CEC devices are connected through, with:
+
+| Entity | Type |
+| --- | --- |
+| Standby all | button |
+| Rescan devices | button |
+| Version, CEC adapter | diagnostic sensors |
 
 cec2mqtt uses Home Assistant's device based MQTT discovery (one discovery message per device). Entities created by earlier
 versions, which used one discovery message per entity, are migrated automatically and keep their entity ID, name and history.

@@ -265,12 +265,18 @@ func (registry *DeviceRegistry) FindDevice(physicalAddress string, vendorId int,
 		}
 	}
 
+	mqttTopic := name
+	if mqttTopic == bridgeTopic {
+		// Used by the Cec2Mqtt bridge itself.
+		mqttTopic = name + "_device"
+	}
+
 	device := &DeviceConfig{
 		Id:              id,
 		PhysicalAddress: physicalAddress,
 		VendorId:        vendorId,
 		OSD:             name,
-		MqttTopic:       name,
+		MqttTopic:       mqttTopic,
 	}
 
 	slog.Info("Created new device",

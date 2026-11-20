@@ -10,6 +10,7 @@ type App struct {
 	power         *PowerBridge
 	remote        *RemoteBridge
 	diagnostics   *DiagnosticsBridge
+	controls      *BridgeControls
 }
 
 // newApp sets up all bridges. Devices found on the CEC bus afterwards are
@@ -25,6 +26,7 @@ func newApp(config *Config, devices *DeviceRegistry, mqtt mqttClient, cec cecBus
 	app.power = setupPowerBridge(cec, mqtt, devices, app.homeAssistant)
 	app.remote = setupRemoteBridge(cec, mqtt, devices, app.homeAssistant)
 	app.diagnostics = setupDiagnosticsBridge(mqtt, devices, app.homeAssistant)
+	app.controls = setupBridgeControls(config, cec, mqtt, app.homeAssistant, app.power.MonitorAll)
 
 	return app
 }
@@ -32,6 +34,7 @@ func newApp(config *Config, devices *DeviceRegistry, mqtt mqttClient, cec cecBus
 // Close stops the bridges, in reverse order of setup. The MQTT and CEC
 // connections are left open.
 func (app *App) Close() {
+	app.controls.Close()
 	app.power.Close()
 	app.audio.Close()
 	app.activeSource.Close()

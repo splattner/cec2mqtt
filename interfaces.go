@@ -21,6 +21,9 @@ type cecSender interface {
 type cecBus interface {
 	cecSender
 	RegisterMessageHandler(handler MessageReceivedHandler, opcodes ...gocec.Opcode)
+	// Scan adds the devices on the bus which aren't known yet.
+	Scan()
+	AdapterPath() string
 }
 
 // mqttClient is the part of *Mqtt used by the bridges. It's an interface so
