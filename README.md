@@ -15,8 +15,21 @@ cec2mqtt currently works on the following hardware:
 Testing has been done both on a generic x64 computer using the Pulse-Eight HDMI-CEC adapter and on a Raspberry Pi.
 
 ## Installation
-The easiest way to run cec2mqtt is by using the Docker images. As Cec2Mqtt is still under development there are only development
-images available, called ``edge``. Use ``ghcr.io/splattner/cec2mqtt:edge`` to run the latest development version. This image works on all supported platforms.
+The easiest way to run cec2mqtt is by using the Docker images, which work on all supported platforms (amd64, arm/v7 and arm64):
+
+* ``ghcr.io/splattner/cec2mqtt:<version>`` (e.g. ``0.1.0``, ``0.1``) or ``latest`` for released versions, see the [releases](https://github.com/splattner/cec2mqtt/releases).
+* ``ghcr.io/splattner/cec2mqtt:edge`` for the latest development version, built from every commit on ``master``.
+
+Release images are signed with [cosign](https://github.com/sigstore/cosign) (keyless) and carry an SPDX SBOM attestation. The SBOM is also attached
+to every GitHub release. To verify an image:
+```console
+cosign verify ghcr.io/splattner/cec2mqtt:<version> \
+  --certificate-identity-regexp '^https://github.com/splattner/cec2mqtt/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+cosign verify-attestation --type spdxjson ghcr.io/splattner/cec2mqtt:<version> \
+  --certificate-identity-regexp '^https://github.com/splattner/cec2mqtt/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
 
 Running cec2mqtt can be done using:
 ```console
