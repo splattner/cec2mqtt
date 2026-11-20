@@ -73,7 +73,9 @@ home_assistant:
 Enabling this integration is the recommended way to use cec2mqtt in combination with Home Assistant as it removes the requirement to manually
 configure the entities in Home Assistant.
 
-Optionally an MQTT state topic with birth and will message can be configured (also required when using Home Assistant integration).
+Optionally an MQTT state topic can be configured, on which cec2mqtt publishes the birth message while running and the will
+message once stopped. This is recommended when using the Home Assistant integration, so the entities show as unavailable while
+cec2mqtt isn't running. The messages default to ``online`` and ``offline``.
 ```yaml
 mqtt:
   state_topic: cec2mqtt/state
@@ -100,6 +102,13 @@ home_assistant:
     birth_topic: homeassistant/status
     birth_payload: online
 ```
+
+``host`` is the address of the MQTT broker, like ``1.2.3.4:1883``, ``tcp://broker:1883``, ``ssl://broker:8883``,
+``wss://broker/mqtt`` or ``unix:///run/mosquitto.sock``. Without a scheme ``tcp://`` is used.
+
+The configuration is checked on startup. cec2mqtt doesn't start when required options are missing, the broker address is
+invalid, or a topic contains the MQTT wildcards ``+`` or ``#``, and logs all problems at once. Unknown options, which are
+usually typos like ``base-topic``, are logged as warnings.
 
 ``client_id`` sets the MQTT client ID; a random one is used when it's not set. ``cec.adapter`` selects the CEC adapter to use when the
 system has more than one (for example ``/dev/cec1`` or ``/dev/ttyACM0``); by default the first adapter found is used.
