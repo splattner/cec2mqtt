@@ -1,6 +1,8 @@
 package device
 
 import (
+	"errors"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -43,9 +45,13 @@ func loadDevicesFromConfig(dataDirectory string) (devices map[string]*Config) {
 	logContext.Info("Reading devices from config file")
 
 	devices = make(map[string]*Config)
-	data, err := os.ReadFile(dataDirectory + "devices.yaml")
-	if err != nil {
+	data, err := os.ReadFile(dataDirectory + "devices.yaml") //nolint:gosec // the data directory is chosen with -data-dir
+	if errors.Is(err, fs.ErrNotExist) {
 		logContext.Info("Devices configuration file does not exist yet")
+		return
+	}
+	if err != nil {
+		logContext.Error("Devices configuration file could not be read", "error", err)
 		return
 	}
 
@@ -312,14 +318,15 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	defer os.Remove(tmp.Name())
+	// Fails once the file was renamed, which is expected.
+	defer func() { _ = os.Remove(tmp.Name()) }()
 
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
+		_ = tmp.Close() // the write error is the one to report
 		return err
 	}
 	if err := tmp.Chmod(perm); err != nil {
-		tmp.Close()
+		_ = tmp.Close() // the chmod error is the one to report
 		return err
 	}
 	if err := tmp.Close(); err != nil {

@@ -93,7 +93,7 @@ func TestMonitorResetDoesNotBlock(t *testing.T) {
 			time.Hour,
 		)
 
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			monitor.Reset()
 		}
 

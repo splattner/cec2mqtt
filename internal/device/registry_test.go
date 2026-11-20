@@ -53,7 +53,7 @@ func TestFindDevice(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Map iteration order is random, so repeat to catch order dependent behaviour.
-			for i := 0; i < 20; i++ {
+			for range 20 {
 				registry := newTestRegistry(t, tt.configs...)
 				known := len(registry.configDevices)
 

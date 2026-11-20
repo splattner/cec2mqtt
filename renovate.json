@@ -5,7 +5,8 @@
     ":dependencyDashboard",
     ":semanticCommits",
     ":automergeMinor",
-    "customManagers:dockerfileVersions"
+    "customManagers:dockerfileVersions",
+    "helpers:pinGitHubActionDigestsToSemver"
   ],
   "labels": [
     "dependencies"
@@ -20,6 +21,15 @@
         "github-actions"
       ],
       "groupName": "github-actions"
+    },
+    {
+      "description": "Linters and scanners used in CI.",
+      "matchDepNames": [
+        "golangci/golangci-lint",
+        "golang.org/x/vuln",
+        "rhysd/actionlint"
+      ],
+      "groupName": "ci tools"
     },
     {
       "matchManagers": [
@@ -38,6 +48,18 @@
       "labels": [
         "dependencies",
         "major"
+      ]
+    }
+  ],
+  "customManagers": [
+    {
+      "description": "Tool versions in the workflows, marked with a '# renovate:' comment (golangci-lint, govulncheck).",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/(workflows|actions)/.+\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>\\S+)\\s+(?:version|[A-Z_]+_VERSION):\\s*[\"']?(?<currentValue>[^\"'\\s]+)"
       ]
     }
   ]

@@ -65,7 +65,7 @@ func (conn *Connection) FindAdapters() []Adapter {
 	count := int(C.libcec_find_adapters(conn.connection, &foundDevices[0], C.uchar(len(foundDevices)), nil))
 
 	adapters := make([]Adapter, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		adapters[i] = Adapter{
 			Path: C.GoString(&foundDevices[i].path[0]),
 			Comm: C.GoString(&foundDevices[i].comm[0]),
