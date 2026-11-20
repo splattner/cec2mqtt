@@ -209,3 +209,6 @@ you can't read the state nor control the device.
 
 Note that under normal operations you must never change any of the other values like, ``id``, ``physical_address``, ``vendor_id`` and ``osd`` 
 as these are used by cec2mqtt to remember and look up the device.
+
+## License
+cec2mqtt is licensed under the [MIT License](LICENSE).
