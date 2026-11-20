@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # renovate: datasource=docker depName=golang
-ARG GO_VERSION=1.26
+ARG GO_VERSION=1.27
 # renovate: datasource=docker depName=alpine
 ARG ALPINE_VERSION=3.24
 # renovate: datasource=docker depName=tonistiigi/xx
