@@ -2,7 +2,6 @@ package main
 
 import (
 	"slices"
-	"sync"
 	"testing"
 
 	"github.com/splattner/cec2mqtt/internal/gocec"
@@ -80,25 +79,4 @@ func TestLogicalAddressName(t *testing.T) {
 			t.Errorf("logicalAddressName(%d) = %q, want %q", address, got, want)
 		}
 	}
-}
-
-// TestVendorNameConcurrent fails with garbled names if vendorName isn't
-// guarded, as gocec converts every vendor in the same C buffer. (The race
-// detector doesn't see that, the buffer is C memory.)
-func TestVendorNameConcurrent(t *testing.T) {
-	var wg sync.WaitGroup
-	for _, vendor := range []gocec.Vendor{gocec.VendorSamsung, gocec.VendorLg, gocec.VendorSony, gocec.VendorPhilips} {
-		want := vendorName(vendor)
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := 0; i < 1000; i++ {
-				if got := vendorName(vendor); got != want {
-					t.Errorf("vendorName(%v) = %q, want %q", uint(vendor), got, want)
-					return
-				}
-			}
-		}()
-	}
-	wg.Wait()
 }

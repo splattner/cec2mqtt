@@ -9,13 +9,10 @@ import (
 	"strings"
 )
 
-var toString *C.char
-
-const toStringSize = 50
-
-func init() {
-	toString = (*C.char)(C.malloc(toStringSize))
-}
+// toStringSize is the size of the buffers libcec writes names into. Every
+// String method uses a buffer of its own, so they can be called from more than
+// one goroutine at the same time.
+const toStringSize = 64
 
 // region Logical address
 type LogicalAddress byte
@@ -42,9 +39,10 @@ const (
 )
 
 func (address LogicalAddress) String() string {
-	C.libcec_logical_address_to_string(C.cec_logical_address(address), toString, toStringSize)
+	var buf [toStringSize]C.char
+	C.libcec_logical_address_to_string(C.cec_logical_address(address), &buf[0], toStringSize)
 
-	return C.GoString(toString)
+	return C.GoString(&buf[0])
 }
 
 //endregion
@@ -137,9 +135,10 @@ const (
 )
 
 func (opcode Opcode) String() string {
-	C.libcec_opcode_to_string(C.cec_opcode(opcode), toString, toStringSize)
+	var buf [toStringSize]C.char
+	C.libcec_opcode_to_string(C.cec_opcode(opcode), &buf[0], toStringSize)
 
-	return C.GoString(toString)
+	return C.GoString(&buf[0])
 }
 
 //endregion
@@ -156,9 +155,10 @@ const (
 )
 
 func (status PowerStatus) String() string {
-	C.libcec_power_status_to_string(C.cec_power_status(status), toString, toStringSize)
+	var buf [toStringSize]C.char
+	C.libcec_power_status_to_string(C.cec_power_status(status), &buf[0], toStringSize)
 
-	return C.GoString(toString)
+	return C.GoString(&buf[0])
 }
 
 //endregion
@@ -198,9 +198,10 @@ const (
 )
 
 func (vendor Vendor) String() string {
-	C.libcec_vendor_id_to_string(C.cec_vendor_id(vendor), toString, toStringSize)
+	var buf [toStringSize]C.char
+	C.libcec_vendor_id_to_string(C.cec_vendor_id(vendor), &buf[0], toStringSize)
 
-	return C.GoString(toString)
+	return C.GoString(&buf[0])
 }
 
 //endregion

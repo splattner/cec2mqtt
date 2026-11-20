@@ -24,6 +24,14 @@ static inline void createCallbacks(libcec_configuration *config, int cbParam)
 	config->callbackParam = malloc(sizeof(int));
 	*(int*)config->callbackParam = cbParam;
 }
+
+static inline void freeCallbacks(libcec_configuration *config)
+{
+	free(config->callbacks);
+	config->callbacks = NULL;
+	free(config->callbackParam);
+	config->callbackParam = NULL;
+}
 */
 import "C"
 
@@ -50,7 +58,8 @@ const (
 type LogMessage struct {
 	Message string
 	Level   LogLevel
-	Time    time.Time
+	// Uptime is the time since libcec was started.
+	Uptime time.Duration
 }
 
 type LogCallback func(*LogMessage)
@@ -70,8 +79,19 @@ func initialiseCallbacks(config *Configuration) {
 		index++
 	}
 	registeredCallbacks[index] = config.callbacks
+	config.callbacksIndex = index
 
 	C.createCallbacks(&config.configuration, C.int(index))
+}
+
+// releaseCallbacks frees the callbacks. libcec must not call them anymore,
+// i.e. the connection must be destroyed.
+func releaseCallbacks(config *Configuration) {
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	delete(registeredCallbacks, config.callbacksIndex)
+	C.freeCallbacks(&config.configuration)
 }
 
 func (config *Configuration) SetLogCallback(callback LogCallback) {
@@ -82,14 +102,15 @@ func (config *Configuration) SetLogCallback(callback LogCallback) {
 func invokeLogCallback(cbParam C.int, cMessage *C.cec_log_message) {
 	callbacks := lookupCallbacks(int(cbParam))
 
-	if callbacks.logCallback == nil {
+	if callbacks == nil || callbacks.logCallback == nil {
 		return
 	}
 
 	message := &LogMessage{
 		Message: C.GoString(cMessage.message),
 		Level:   LogLevel(cMessage.level),
-		Time:    time.Unix(int64(cMessage.time), 0),
+		// libcec reports the milliseconds since it was started.
+		Uptime: time.Duration(cMessage.time) * time.Millisecond,
 	}
 
 	callbacks.logCallback(message)

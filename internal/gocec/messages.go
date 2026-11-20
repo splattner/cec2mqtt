@@ -28,11 +28,19 @@ func NewMessage(source LogicalAddress, destination LogicalAddress, opcode Opcode
 	return message
 }
 
+// Source returns the initiator of the message, or DeviceUnknown for an empty message.
 func (message Message) Source() LogicalAddress {
+	if len(message) == 0 {
+		return DeviceUnknown
+	}
 	return LogicalAddress(message[0] >> 4)
 }
 
+// Destination returns the destination of the message, or DeviceUnknown for an empty message.
 func (message Message) Destination() LogicalAddress {
+	if len(message) == 0 {
+		return DeviceUnknown
+	}
 	return LogicalAddress(0x0F & message[0])
 }
 
@@ -53,6 +61,10 @@ func (message Message) Parameters() []byte {
 }
 
 func (message Message) String() string {
+	if len(message) == 0 {
+		return "empty message"
+	}
+
 	var b strings.Builder
 	fmt.Fprintf(&b, "from %s to %s, message: %s", message.Source(), message.Destination(), message.Opcode())
 

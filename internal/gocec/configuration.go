@@ -2,6 +2,7 @@ package gocec
 
 /*
 #include <stdio.h>
+#include <stdlib.h>
 #include <libcec/cecc.h>
 
 void setDeviceName(libcec_configuration *config, char *name)
@@ -11,17 +12,21 @@ void setDeviceName(libcec_configuration *config, char *name)
 */
 import "C"
 
+import "unsafe"
+
 type Configuration struct {
-	configuration C.libcec_configuration
-	callbacks     *callbacks
+	configuration  C.libcec_configuration
+	callbacks      *callbacks
+	callbacksIndex int
 }
 
 func NewConfiguration(deviceName string, activateSource bool) (config *Configuration) {
 	config = &Configuration{}
 	C.libcec_clear_configuration(&config.configuration)
 	config.configuration.clientVersion = C.LIBCEC_VERSION_CURRENT
-	C.setDeviceName(&config.configuration, C.CString(deviceName))
+	config.SetDeviceName(deviceName)
 	config.configuration.deviceTypes.types[0] = C.CEC_DEVICE_TYPE_RECORDING_DEVICE
+	config.SetActivateSource(activateSource)
 
 	initialiseCallbacks(config)
 
@@ -29,7 +34,9 @@ func NewConfiguration(deviceName string, activateSource bool) (config *Configura
 }
 
 func (config *Configuration) SetDeviceName(name string) {
-	C.setDeviceName(&config.configuration, C.CString(name))
+	cName := C.CString(name)
+	defer C.free(unsafe.Pointer(cName))
+	C.setDeviceName(&config.configuration, cName)
 }
 
 func (config *Configuration) SetActivateSource(activate bool) {
