@@ -1,4 +1,8 @@
 # Cec2Mqtt
+> [!NOTE]
+> This project is a continuation of [RobertMe/cec2mqtt](https://github.com/RobertMe/cec2mqtt), originally created by
+> [Robert Meijers](https://github.com/RobertMe). See [Credits](#credits).
+
 cec2mqtt enables you to read the status and control your CEC enabled devices using MQTT.
 Currently its supported features are:
 * Reading the power status (on/off) of devices
@@ -209,3 +213,12 @@ you can't read the state nor control the device.
 
 Note that under normal operations you must never change any of the other values like, ``id``, ``physical_address``, ``vendor_id`` and ``osd`` 
 as these are used by cec2mqtt to remember and look up the device.
+
+## Credits
+cec2mqtt was originally created by [Robert Meijers](https://github.com/RobertMe) at
+[RobertMe/cec2mqtt](https://github.com/RobertMe/cec2mqtt). He wrote the foundation of this project between 2019 and 2021:
+the CEC handling for both libcec and the Linux kernel CEC API, the MQTT bridge, device discovery and the Home Assistant
+integration. This repository started as a fork of his work and continues it with additional features and maintenance.
+The full history of the original project, including all of Robert's commits, is preserved in this repository.
+
+Many thanks to Robert for creating cec2mqtt and making it available!
