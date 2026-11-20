@@ -6,7 +6,7 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/RobertMe/gocec"
+	"github.com/splattner/cec2mqtt/internal/gocec"
 )
 
 // These tests run in a synctest bubble: time is fake and only advances when

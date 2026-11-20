@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/RobertMe/gocec"
+	"github.com/splattner/cec2mqtt/internal/gocec"
 )
 
 func TestPowerStateValue(t *testing.T) {

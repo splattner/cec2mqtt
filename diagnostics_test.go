@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/RobertMe/gocec"
+	"github.com/splattner/cec2mqtt/internal/gocec"
 )
 
 func TestDiagnosticsBridge(t *testing.T) {

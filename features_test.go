@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RobertMe/gocec"
+	"github.com/splattner/cec2mqtt/internal/gocec"
 )
 
 func TestKeyCodes(t *testing.T) {

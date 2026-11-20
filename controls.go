@@ -6,7 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/RobertMe/gocec"
+	"github.com/splattner/cec2mqtt/internal/gocec"
 )
 
 // bridgeTopic is the MQTT topic name of the Cec2Mqtt bridge itself, like

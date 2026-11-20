@@ -32,6 +32,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 
 COPY *.go ./
+COPY internal ./internal
 
 # go vet and the tests run in CI (and are platform independent), so they're not repeated here.
 ARG VERSION=dev

@@ -6,8 +6,8 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/RobertMe/gocec"
 	paho "github.com/eclipse/paho.mqtt.golang"
+	"github.com/splattner/cec2mqtt/internal/gocec"
 )
 
 // fakePahoClient implements the parts of paho.Client used by Mqtt.Close.

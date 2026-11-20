@@ -252,4 +252,7 @@ the CEC handling for both libcec and the Linux kernel CEC API, the MQTT bridge, 
 integration. This repository started as a fork of his work and continues it with additional features and maintenance.
 The full history of the original project, including all of Robert's commits, is preserved in this repository.
 
+The libcec bindings in [internal/gocec](internal/gocec) were also written by Robert, at
+[RobertMe/gocec](https://github.com/RobertMe/gocec), and are maintained as part of this repository since.
+
 Many thanks to Robert for creating cec2mqtt and making it available!
