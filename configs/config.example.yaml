@@ -1,0 +1,29 @@
+# Example configuration of cec2mqtt. Copy it as config.yaml into the data
+# directory (-data-dir, /data/cec2mqtt/ by default) and adjust it.
+
+mqtt:
+  # Address of the broker: host:port, tcp://, ssl://, ws://, wss:// or unix://
+  host: tcp://192.168.1.10:1883
+  # username: cec2mqtt
+  # password: secret
+  # client_id: cec2mqtt
+
+  # All topics start with it, e.g. cec2mqtt/TV/power.
+  base_topic: cec2mqtt
+
+  # cec2mqtt publishes the birth message here while running, and the broker
+  # the will message once it's stopped. Defaults to online/offline.
+  state_topic: cec2mqtt/state
+  # birth_message: online
+  # will_message: offline
+
+cec:
+  # The CEC adapter, when the system has more than one. By default the first
+  # one found is used.
+  # adapter: /dev/cec0
+
+home_assistant:
+  enable: true
+  # discovery_prefix: homeassistant
+  # birth_topic: homeassistant/status
+  # birth_payload: online

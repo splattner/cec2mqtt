@@ -83,7 +83,7 @@ mqtt:
   will_message: offline
 ```
 
-A complete example of the configuration is the following:
+A complete example of the configuration is the following (also in [configs/config.example.yaml](configs/config.example.yaml)):
 ```yaml
 mqtt:
     host: 1.2.3.4:1883
@@ -127,7 +127,7 @@ All topics are prefixed with ``<base_topic>/<mqtt_topic of the device>/``, for e
 | ``is_active_source/set`` | command | ``on``: wakes the TV and switches to this device |
 | ``source`` | state | TV only: ``mqtt_topic`` of the active device, or ``None`` |
 | ``source/set`` | command | TV only: ``mqtt_topic`` of the device to switch to |
-| ``key/set`` | command | Name of a key to send, e.g. ``select``, ``up``, ``play``, ``pause``, ``root_menu``, ``number_1`` (see [keys.go](keys.go) for all names) |
+| ``key/set`` | command | Name of a key to send, e.g. ``select``, ``up``, ``play``, ``pause``, ``root_menu``, ``number_1`` (see [keys.go](internal/bridge/keys.go) for all names) |
 | ``remote_key`` | event | ``{"event_type": "<key name>"}`` when the device sends a key press to cec2mqtt (e.g. the TV forwarding its remote while cec2mqtt is the active source) |
 | ``volume`` | state | ``0`` - ``100`` (audio system only) |
 | ``volume/set`` | command | ``up`` or ``down`` (audio system only) |
@@ -244,6 +244,29 @@ you can't read the state nor control the device.
 
 Note that under normal operations you must never change any of the other values like, ``id``, ``physical_address``, ``vendor_id`` and ``osd`` 
 as these are used by cec2mqtt to remember and look up the device.
+
+## Development
+The layout follows the common Go project layout:
+
+| Directory | Contents |
+| --- | --- |
+| [cmd/cec2mqtt](cmd/cec2mqtt) | The command: flags, startup and shutdown |
+| [internal/bridge](internal/bridge) | The bridges between CEC and MQTT: power, active source, audio, remote keys, diagnostics and the bus wide controls |
+| [internal/homeassistant](internal/homeassistant) | Home Assistant MQTT discovery |
+| [internal/cec](internal/cec) | The libcec connection |
+| [internal/gocec](internal/gocec) | Go bindings for libcec |
+| [internal/mqtt](internal/mqtt) | The MQTT client |
+| [internal/device](internal/device) | The devices on the bus and ``devices.yaml`` |
+| [internal/config](internal/config) | Reading and validating ``config.yaml`` |
+| [internal/logging](internal/logging), [internal/version](internal/version) | Logging setup, build version |
+| [internal/fake](internal/fake) | Fake CEC adapter and MQTT client for the tests |
+| [configs](configs) | Example configuration |
+
+Building and testing needs the libcec headers (``libcec-dev`` on Debian, Ubuntu and Alpine):
+```console
+go build ./cmd/cec2mqtt
+go test -race ./...
+```
 
 ## Credits
 cec2mqtt was originally created by [Robert Meijers](https://github.com/RobertMe) at
