@@ -9,10 +9,6 @@ import (
 	"github.com/RobertMe/gocec"
 )
 
-func init() {
-	RegisterInitializer(0, InitRemoteBridge)
-}
-
 // RemoteBridge sends key presses to devices (<device>/key/set) and publishes
 // key presses received from devices, like the TV forwarding its remote control
 // buttons (<device>/remote_key).
@@ -36,14 +32,12 @@ func newRemoteBridge(cec cecSender, mqtt mqttClient, devices *DeviceRegistry) *R
 	}
 }
 
-func InitRemoteBridge(container *Container) {
-	cec := container.Get("cec").(*Cec)
-	mqtt := container.Get("mqtt").(*Mqtt)
-	devices := container.Get("devices").(*DeviceRegistry)
-
+// setupRemoteBridge creates the bridge and connects it to CEC, MQTT and the
+// device registry. haBridge is nil when the Home Assistant integration is disabled.
+func setupRemoteBridge(cec cecBus, mqtt mqttClient, devices *DeviceRegistry, haBridge *HomeAssistantBridge) *RemoteBridge {
 	bridge := newRemoteBridge(cec, mqtt, devices)
 
-	if haBridge, ok := container.Get("home-assistant").(*HomeAssistantBridge); ok {
+	if haBridge != nil {
 		bridge.haBridge = haBridge
 		haBridge.RegisterBirthHandler(bridge.resendDiscovery)
 		mqtt.RegisterConnectedHandler(bridge.resendDiscovery)
@@ -52,7 +46,7 @@ func InitRemoteBridge(container *Container) {
 	devices.RegisterDeviceAddedHandler(bridge.deviceAdded)
 	cec.RegisterMessageHandler(bridge.handleUserControlPressed, gocec.OpcodeUserControlPressed)
 
-	container.Register("bridge.remote", bridge)
+	return bridge
 }
 
 func (bridge *RemoteBridge) deviceAdded(device *Device) {

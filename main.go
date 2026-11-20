@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -15,34 +14,6 @@ import (
 // BuildVersion is overridden at build time using
 // -ldflags "-X main.BuildVersion=<version>".
 var BuildVersion = "dev"
-
-type Initializer func(container *Container)
-
-var initializers = make(map[int][]Initializer, 0)
-
-func RegisterInitializer(priority int, initializer Initializer) {
-	if _, ok := initializers[priority]; ok {
-		initializers[priority] = append(initializers[priority], initializer)
-	} else {
-		initializers[priority] = []Initializer{initializer}
-	}
-}
-
-func runInitializers(container *Container) {
-	priorities := make([]int, len(initializers))
-	i := 0
-	for priority := range initializers {
-		priorities[i] = priority
-		i++
-	}
-
-	sort.Ints(priorities)
-	for i := len(priorities) - 1; i >= 0; i-- {
-		for _, initializer := range initializers[priorities[i]] {
-			initializer(container)
-		}
-	}
-}
 
 func main() {
 
@@ -69,29 +40,23 @@ func main() {
 
 	dataDir = strings.TrimRight(dataDir, "/") + "/"
 
-	container := NewContainer()
-
 	config, err := ParseConfig(dataDir)
 
 	if nil != err {
 		logFatal("Error reading configuration", "error", err)
 	}
 
-	container.Register("config", config)
-
 	devices := NewDeviceRegistry(dataDir)
-	container.Register("devices", devices)
 
 	mqtt, err := ConnectMqtt(config)
 
 	if nil != err {
+		// Not the whole MQTT configuration, it contains the password.
 		logFatal("Failed to connect to MQTT broker",
-			"config", config.Mqtt,
+			"host", config.Mqtt.Host,
 			"error", err,
 		)
 	}
-
-	container.Register("mqtt", mqtt)
 
 	cec, err := InitialiseCec(devices, config.Cec.Adapter)
 	if nil != err {
@@ -100,9 +65,7 @@ func main() {
 
 	cec.LibCecLoggingEnabled = logCecMessages
 
-	container.Register("cec", cec)
-
-	runInitializers(container)
+	app := newApp(config, devices, mqtt, cec)
 
 	if err := cec.Start(); err != nil {
 		logFatal("Failed to open CEC connection", "error", err)
@@ -125,7 +88,7 @@ func main() {
 		os.Exit(1)
 	}()
 
-	shutdown(container, devices)
+	shutdown(app, mqtt, devices)
 	slog.Info("Exited")
 }
 
@@ -136,8 +99,9 @@ const shutdownTimeout = 10 * time.Second
 // shutdown stops the bridges, publishes the will message and disconnects from
 // MQTT, and saves the devices. libcec has no way to close the connection
 // through gocec, the adapter is released when the process exits.
-func shutdown(container *Container, devices *DeviceRegistry) {
-	container.Close()
+func shutdown(app *App, mqtt *Mqtt, devices *DeviceRegistry) {
+	app.Close()
+	mqtt.Close()
 
 	if err := devices.Save(); err != nil {
 		slog.Error("Failed to save devices on shutdown", "error", err)

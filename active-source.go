@@ -9,10 +9,6 @@ import (
 	"github.com/RobertMe/gocec"
 )
 
-func init() {
-	RegisterInitializer(0, InitActiveSourceBridge)
-}
-
 type ActiveSourceBridge struct {
 	// mux guards activeSource and allowedSources, which are accessed from both
 	// libcec callbacks and the monitor goroutine.
@@ -42,14 +38,13 @@ func newActiveSourceBridge(sender cecSender, mqtt mqttClient, devices *DeviceReg
 	}
 }
 
-func InitActiveSourceBridge(container *Container) {
-	cec := container.Get("cec").(*Cec)
-	mqtt := container.Get("mqtt").(*Mqtt)
-	devices := container.Get("devices").(*DeviceRegistry)
+// setupActiveSourceBridge creates the bridge and connects it to CEC, MQTT and the
+// device registry. haBridge is nil when the Home Assistant integration is disabled.
+func setupActiveSourceBridge(cec cecBus, mqtt mqttClient, devices *DeviceRegistry, haBridge *HomeAssistantBridge) *ActiveSourceBridge {
 
 	bridge := newActiveSourceBridge(cec, mqtt, devices)
 
-	if haBridge, ok := container.Get("home-assistant").(*HomeAssistantBridge); ok {
+	if haBridge != nil {
 		slog.Info("Enabling Home Assistant configuration for active source")
 		bridge.haBridge = haBridge
 		haBridge.RegisterBirthHandler(bridge.resendAll)
@@ -121,7 +116,7 @@ func InitActiveSourceBridge(container *Container) {
 
 	mqtt.RegisterConnectedHandler(bridge.resendAll)
 
-	container.Register("active-source", bridge)
+	return bridge
 }
 
 func (bridge *ActiveSourceBridge) updateActiveSource(newSource *Device) {

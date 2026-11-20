@@ -8,10 +8,6 @@ import (
 	"time"
 )
 
-func init() {
-	RegisterInitializer(100, InitHomeAssistantBridge)
-}
-
 type HomeAssistantBirthHandler func()
 
 // removedComponents lists components published by earlier versions which no
@@ -66,14 +62,14 @@ func newHomeAssistantBridge(config *Config, mqtt mqttClient) *HomeAssistantBridg
 	}
 }
 
-func InitHomeAssistantBridge(container *Container) {
-	config := container.Get("config").(*Config)
+// setupHomeAssistantBridge creates the bridge and listens for Home Assistant
+// restarts. It returns nil when the integration is disabled.
+func setupHomeAssistantBridge(config *Config, mqtt mqttClient) *HomeAssistantBridge {
 	if !config.HomeAssistant.Enable {
 		slog.Info("Home assistant integration is not enabled, skipping")
-		return
+		return nil
 	}
 
-	mqtt := container.Get("mqtt").(*Mqtt)
 	bridge := newHomeAssistantBridge(config, mqtt)
 
 	mqtt.Subscribe(config.HomeAssistant.BirthTopic, 0, func(payload []byte) {
@@ -91,7 +87,7 @@ func InitHomeAssistantBridge(container *Container) {
 		}
 	})
 
-	container.Register("home-assistant", bridge)
+	return bridge
 }
 
 func (bridge *HomeAssistantBridge) RegisterBirthHandler(handler HomeAssistantBirthHandler) {

@@ -34,6 +34,30 @@ type fakeCec struct {
 
 	activeSource         gocec.LogicalAddress
 	activeSourceRequests int
+
+	handlers map[gocec.Opcode][]MessageReceivedHandler
+}
+
+func (cec *fakeCec) RegisterMessageHandler(handler MessageReceivedHandler, opcodes ...gocec.Opcode) {
+	cec.mux.Lock()
+	defer cec.mux.Unlock()
+	if cec.handlers == nil {
+		cec.handlers = make(map[gocec.Opcode][]MessageReceivedHandler)
+	}
+	for _, opcode := range opcodes {
+		cec.handlers[opcode] = append(cec.handlers[opcode], handler)
+	}
+}
+
+// receive simulates a message received from a device.
+func (cec *fakeCec) receive(message gocec.Message) {
+	cec.mux.Lock()
+	handlers := append([]MessageReceivedHandler(nil), cec.handlers[message.Opcode()]...)
+	cec.mux.Unlock()
+
+	for _, handler := range handlers {
+		handler(message)
+	}
 }
 
 func (cec *fakeCec) PowerOn(address gocec.LogicalAddress) {
