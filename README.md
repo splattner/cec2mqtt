@@ -1,7 +1,8 @@
-# Cec2Mqtt
-> [!NOTE]
-> This project is a continuation of [RobertMe/cec2mqtt](https://github.com/RobertMe/cec2mqtt), originally created by
-> [Robert Meijers](https://github.com/RobertMe). See [Credits](#credits).
+<p align="center">
+  <img src="docs/cec2mqtt-banner.svg"
+       alt="cec2mqtt — Bridge HDMI-CEC to MQTT"
+       width="100%">
+</p>
 
 cec2mqtt enables you to read the status and control your CEC enabled devices using MQTT.
 Currently its supported features are:
@@ -11,6 +12,10 @@ Currently its supported features are:
 * Reading and changing the volume and mute status of the audio system (AV receiver / soundbar)
 * Sending remote control key presses to devices, and receiving key presses from the TV remote
 * Home Assistant integration for auto discovery
+
+> [!NOTE]
+> This project is a continuation of [RobertMe/cec2mqtt](https://github.com/RobertMe/cec2mqtt), originally created by
+> [Robert Meijers](https://github.com/RobertMe). See [Credits](#credits).
 
 # Requirements
 cec2mqtt currently works on the following hardware:
