@@ -22,7 +22,7 @@ Testing has been done both on a generic x64 computer using the Pulse-Eight HDMI-
 The easiest way to run cec2mqtt is by using the Docker images, which work on all supported platforms (amd64, arm/v7 and arm64):
 
 * ``ghcr.io/splattner/cec2mqtt:<version>`` (e.g. ``0.1.0``, ``0.1``) or ``latest`` for released versions, see the [releases](https://github.com/splattner/cec2mqtt/releases).
-* ``ghcr.io/splattner/cec2mqtt:edge`` for the latest development version, built from every commit on ``master``.
+* ``ghcr.io/splattner/cec2mqtt:edge`` for the latest development version, built from every commit on ``main``.
 
 Release images are signed with [cosign](https://github.com/sigstore/cosign) (keyless) and carry an SPDX SBOM attestation. The SBOM is also attached
 to every GitHub release. To verify an image:
