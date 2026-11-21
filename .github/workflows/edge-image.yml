@@ -1,11 +1,11 @@
 name: Edge Image
 
-# Publishes ghcr.io/<owner>/cec2mqtt:edge from every push to master.
+# Publishes ghcr.io/<owner>/cec2mqtt:edge from every push to main.
 # Versioned images are published by release-images.yml.
 
 on:
   push:
-    branches: [master]
+    branches: [main]
 
 permissions:
   contents: read
@@ -41,7 +41,7 @@ jobs:
         with:
           images: ${{ env.IMAGE }}
           tags: |
-            type=edge,branch=master
+            type=edge,branch=main
 
       - name: Build and push image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
